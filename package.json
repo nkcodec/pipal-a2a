@@ -1,0 +1,33 @@
+{
+  "name": "pipal-a2a",
+  "version": "0.1.0",
+  "description": "Peer-to-peer multi-agent orchestration via A2A protocol",
+  "type": "module",
+  "main": "src/cli/index.ts",
+  "scripts": {
+    "start": "node src/cli/index.ts",
+    "dev": "node --watch src/cli/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "js-yaml": "^4.1.1",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.22.0",
+    "vitest": "^4.1.6"
+  },
+  "keywords": [
+    "a2a",
+    "agent",
+    "multi-agent",
+    "peer-to-peer",
+    "orchestration"
+  ],
+  "license": "MIT"
+}
