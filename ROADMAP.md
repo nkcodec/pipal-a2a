@@ -4,6 +4,27 @@
 
 ---
 
+## Versioning Strategy
+
+```
+v0.1.0  ← current (core types + shared state + extension + tests)
+v0.1.1  ← next: JSON-RPC binding
+v0.1.2  ← streaming (SendStreamingMessage)
+v0.1.3  ← multi-turn (contextId)
+v0.1.4  ← auth (API Key)
+v0.1.5  ← agent card signing + well-known discovery
+v0.1.6  ← push notifications
+v0.1.7  ← gRPC binding
+v0.1.8  ← OAuth2 + extended agent card
+v0.1.9  ← final polish, interop tests
+v0.2.0  ← = "v1.0" — full Google A2A spec compliance
+```
+
+**Rule:** `v0.2.0` is the milestone where we can say "fully Google A2A v1.0 compliant".
+Everything before that is incremental, testable, shippable.
+
+---
+
 ## Pre-flight Design (Completed)
 
 | Question | Answer |
@@ -18,169 +39,216 @@
 
 ---
 
-## Phase 1: Google A2A v1.0 Core Types ✅
+## v0.1.0 — Foundation ✅ (Current)
 
-- [x] Adopt Google A2A v1.0 data model from [spec](https://github.com/google/A2A)
-- [x] `Task` — id, contextId, status, history, artifacts
-- [x] `TaskState` — TASK_STATE_SUBMITTED/WORKING/COMPLETED/FAILED/CANCELED/REJECTED/INPUT_REQUIRED/AUTH_REQUIRED
-- [x] `Message` — role (ROLE_USER/ROLE_AGENT), parts[], messageId
-- [x] `Part` — unified: text, raw, url, data + mediaType
-- [x] `Artifact` — artifactId, parts[], name, description
-- [x] `AgentCard` — name, supportedInterfaces[], capabilities, skills[] (v1.0 shape)
-- [x] `AgentSkill` — id, name, description, tags, examples
-- [x] `AgentCapabilities` — streaming, pushNotifications, stateTransitionHistory
-- [x] `AgentInterface` — url, protocolBinding, protocolVersion
+### Phase 1: Google A2A v1.0 Core Types ✅
+
+- [x] Adopt Google A2A v1.0 data model
+- [x] `Task`, `TaskState` (8 states, SCREAMING_SNAKE_CASE)
+- [x] `Message` (ROLE_USER/ROLE_AGENT, parts[])
+- [x] `Part` (unified: text, raw, url, data + mediaType)
+- [x] `Artifact` (artifactId, parts[])
+- [x] `AgentCard` (name, supportedInterfaces[], capabilities, skills[])
+- [x] `AgentSkill`, `AgentCapabilities`, `AgentInterface`, `AgentProvider`
 - [x] Factory functions with deep `Object.freeze()`
-- [x] Layer 1 tests — 19 tests, spec compliance verified
+- [x] 19 tests — spec compliance verified
 
-**Exit criteria:** Core types match Google A2A v1.0 spec. Zero external dependencies. ✅
+### Phase 2: SDK + Builtin ✅
 
----
+- [x] SDK interfaces only (AgentRegistry, TaskRouter, RoutingStrategy)
+- [x] SkillMatcher in builtin/ (routes by AgentSkill)
+- [x] Protocol compliance checks
 
-## Phase 2: SDK + Builtin ✅
+### Phase 3: Shared State ✅
 
-- [x] SDK with interfaces only (AgentRegistry, TaskRouter, RoutingStrategy)
-- [x] Zero implementation in SDK
-- [x] SkillMatcher in builtin/ (routes by AgentSkill matching)
-- [x] Protocol compliance checks at definition time
-
-**Exit criteria:** SDK has no function bodies with logic. ✅
-
----
-
-## Phase 3: Shared State ✅
-
-- [x] `SharedStateServer` — HTTP rendezvous server
-- [x] `SharedStateClient` — connects to shared state
-- [x] Agent registration (Google A2A AgentCard)
-- [x] Task creation with TaskState lifecycle
+- [x] `SharedStateServer` + `SharedStateClient`
+- [x] Task lifecycle: SUBMITTED → WORKING → COMPLETED/FAILED
 - [x] Results as Artifact with Part[] (Google A2A spec)
-- [x] SSE events for real-time notifications
-- [x] Health check endpoint
+- [x] SSE for real-time events
 - [x] Auto HOST/JOIN detection
 
-**Exit criteria:** Two terminals register, exchange tasks via shared state. ✅
+### Phase 4: Pi Extension ✅
 
----
-
-## Phase 4: Pi Extension ✅
-
-- [x] Extension entry point with `export default function(pi)`
-- [x] `pipal_a2a_delegate` tool registration
-- [x] `/pipal-status` command
-- [x] Auto-detect HOST vs JOIN on session_start
-- [x] SSE subscription for incoming delegated tasks
+- [x] `pipal_a2a_delegate` tool + `/pipal-status` command
+- [x] HOST/JOIN auto-detect on session_start
 - [x] Task injection via `pi.sendUserMessage()`
-- [x] Result capture via `message_update` + `agent_end` events
-- [x] Per-terminal config (`config/pipal-a2a.yaml`)
-- [x] Environment variable overrides (`PIPAL_NAME`, `PIPAL_SKILLS`)
+- [x] Result capture via `message_update` + `agent_end`
+- [x] Per-terminal config + env var overrides
 
-**Exit criteria:** `pi install ./pipal-a2a` → tool works, two terminals collaborate. ✅
+### Phase 5: Tests ✅
 
----
+- [x] Layer 1: 19 core tests, spec compliance, no mocks
 
-## Phase 5: Tests (Current — In Progress)
-
-- [x] Layer 1: Core type tests — 19 tests, no mocks
-  - Google A2A spec compliance (TaskState SCREAMING_SNAKE_CASE, ISO 8601, AgentCard v1.0)
-  - Deep freeze verification
-  - Factory function correctness
-- [ ] Layer 2: SharedStateServer tests with stub client
-- [ ] Layer 2: Router tests with stub registry
-- [ ] Layer 3: E2E — two simulated terminals, real HTTP, real task lifecycle
-
-**Exit criteria:** All three test layers pass with zero mocks.
+**Exit criteria:** Two pi terminals can discover each other, delegate tasks, see results. ✅
 
 ---
 
-## Phase 6: Polish
+## v0.1.1 — JSON-RPC Binding
 
-- [ ] Real-time widget showing agent status in pi footer
-- [ ] `/pipal-dashboard` command with live task progress
-- [ ] Error recovery (SSE reconnection, task retry)
-- [ ] Task queue (handle multiple incoming tasks)
-- [ ] LICENSE (MIT)
-- [ ] CONTRIBUTING.md
+Align transport with Google A2A spec §9 (JSON-RPC 2.0).
 
-**Exit criteria:** Production-ready for team use.
+- [ ] Replace REST `/tasks` with JSON-RPC `SendMessage` method
+- [ ] Implement `GetTask` method (JSON-RPC)
+- [ ] Implement `CancelTask` method (JSON-RPC)
+- [ ] Implement `ListTasks` method (JSON-RPC)
+- [ ] `A2A-Version` header on all responses
+- [ ] JSON-RPC error codes mapped from A2A spec
+- [ ] Update SharedStateClient to use JSON-RPC calls
+- [ ] Update extension to use new client API
+
+**Exit criteria:** All agent communication uses JSON-RPC 2.0. REST endpoints removed.
 
 ---
 
-## Google A2A v1.0 Spec Compliance Roadmap
+## v0.1.2 — Streaming
 
-### Already Implemented (v0.2)
+Implement `SendStreamingMessage` (Google A2A spec §3.1.2).
 
-- ✅ **AgentCard** — full v1.0 structure with `supportedInterfaces[]`
-- ✅ **Task** — id, status, history, artifacts
-- ✅ **TaskState** — all 8 states (SCREAMING_SNAKE_CASE)
-- ✅ **Message** — ROLE_USER/ROLE_AGENT, parts[], messageId
-- ✅ **Part** — unified (text, raw, url, data)
-- ✅ **Artifact** — artifactId, parts[], name
-- ✅ **AgentSkill** — id, name, description, tags, examples
-- ✅ **AgentCapabilities** — streaming, pushNotifications
-- ✅ **AgentInterface** — url, protocolBinding, protocolVersion
-- ✅ **Task lifecycle** — SUBMITTED → WORKING → COMPLETED/FAILED
-- ✅ **REST binding** — spec §11 HTTP+JSON
-
-### v0.3 — JSON-RPC Binding
-
-- [ ] `SendMessage` method (JSON-RPC)
-- [ ] `GetTask` method
-- [ ] `CancelTask` method
-- [ ] `ListTasks` method
-- [ ] `/.well-known/agent-card.json` for discovery
-- [ ] `A2A-Version` header
-
-### v0.4 — Streaming + Multi-turn
-
-- [ ] `SendStreamingMessage` — SSE streaming (spec §3.1.2)
-- [ ] `SubscribeToTask` — real-time task updates (spec §3.1.6)
-- [ ] `contextId` — multi-turn conversations (spec §3.4)
+- [ ] `SendStreamingMessage` — SSE streaming response
+- [ ] `TaskStatusUpdateEvent` — stream state transitions
 - [ ] `TaskArtifactUpdateEvent` — stream artifacts as they're generated
+- [ ] LLM response streamed token-by-token back to delegating agent
+- [ ] Update extension to consume streaming events
 
-### v0.5 — Auth
-
-- [ ] API Key auth (`APIKeySecurityScheme`)
-- [ ] `GetExtendedAgentCard` — authenticated discovery
-- [ ] `SecurityScheme` in AgentCard
-
-### v1.0 — Full Spec Compliance
-
-- [ ] OAuth2 support
-- [ ] gRPC binding (spec §10)
-- [ ] Agent Card signing (spec §8.4)
-- [ ] Push notifications (spec §3.1.7-3.1.10)
-- [ ] Interop test with reference Google A2A implementation
+**Exit criteria:** Delegated task results stream back in real-time, not polled.
 
 ---
 
-## Future (Beyond v1.0)
+## v0.1.3 — Multi-Turn
 
-| Feature | Why to skip |
-|---------|-------------|
-| Distributed shared state (Redis) | Single-machine is fine for team use |
-| Multi-machine (WAN) | LAN is v1 scope |
-| Agent marketplace | Own team only |
-| Third-party extension system | Not needed |
-| LangGraph conditional routing | Not the architecture |
+Implement `contextId` for multi-turn conversations (Google A2A spec §3.4).
+
+- [ ] `contextId` on Task — links related messages in a conversation
+- [ ] Follow-up messages sent with same `contextId`
+- [ ] `TASK_STATE_INPUT_REQUIRED` — agent asks for clarification
+- [ ] Task history (`history[]`) populated across turns
+- [ ] Update extension to handle multi-turn delegated tasks
+
+**Exit criteria:** Agent A can ask Agent B a follow-up question mid-task.
 
 ---
 
-## Non-Goals (v1)
+## v0.1.4 — Auth (API Key)
+
+Add authentication (Google A2A spec §7).
+
+- [ ] `APIKeySecurityScheme` in AgentCard
+- [ ] Shared state validates API key on registration
+- [ ] Per-agent API keys in config
+- [ ] `TASK_STATE_AUTH_REQUIRED` for unauthorized requests
+- [ ] `401` responses for missing/invalid keys
+
+**Exit criteria:** Unregistered agents cannot join the network. API keys required.
+
+---
+
+## v0.1.5 — Agent Card Discovery + Signing
+
+Standard discovery and trust (Google A2A spec §8).
+
+- [ ] `/.well-known/agent-card.json` endpoint on each agent
+- [ ] `GetExtendedAgentCard` method (authenticated)
+- [ ] AgentCard signing (RFC 8785 canonicalization + JWS)
+- [ ] Signature verification on agent registration
+- [ ] AgentCard caching (spec §8.6)
+
+**Exit criteria:** Agents discoverable via well-known URI. Cards verifiable.
+
+---
+
+## v0.1.6 — Push Notifications
+
+Implement push notifications (Google A2A spec §3.1.7-3.1.10).
+
+- [ ] `CreateTaskPushNotificationConfig` method
+- [ ] `GetTaskPushNotificationConfig` method
+- [ ] `ListTaskPushNotificationConfigs` method
+- [ ] `DeleteTaskPushNotificationConfig` method
+- [ ] Webhook delivery of task completion events
+- [ ] `PushNotificationConfig` in AgentCard capabilities
+
+**Exit criteria:** Agents can receive task completion notifications via webhook.
+
+---
+
+## v0.1.7 — gRPC Binding
+
+Add gRPC transport (Google A2A spec §10).
+
+- [ ] gRPC service definition from spec
+- [ ] `SendMessage`, `GetTask`, `CancelTask` via gRPC
+- [ ] `SendStreamingMessage` via server-streaming RPC
+- [ ] Dual transport support (JSON-RPC + gRPC in AgentCard)
+- [ ] Performance benchmarks vs JSON-RPC
+
+**Exit criteria:** Agents can communicate via gRPC. AgentCard declares both bindings.
+
+---
+
+## v0.1.8 — OAuth2 + Extended Agent Card
+
+Enterprise auth (Google A2A spec §7).
+
+- [ ] `OAuth2SecurityScheme` in AgentCard
+- [ ] `OpenIdConnectSecurityScheme` in AgentCard
+- [ ] OAuth2 flows for agent-to-agent auth
+- [ ] `GetExtendedAgentCard` with OAuth2 bearer token
+- [ ] Extended card contains sensitive capabilities
+
+**Exit criteria:** Agents authenticate via OAuth2. Extended cards require auth.
+
+---
+
+## v0.1.9 — Final Polish + Interop
+
+Ship readiness.
+
+- [ ] Interop test with Google A2A reference implementation
+- [ ] Spec compliance test suite (all methods, all states)
+- [ ] Documentation: CONTRIBUTING.md, API reference
+- [ ] LICENSE (MIT)
+- [ ] Performance tuning (connection pooling, SSE reconnection)
+- [ ] Error recovery (task retry, agent reconnection)
+- [ ] Task queue (handle multiple incoming tasks)
+
+**Exit criteria:** All Google A2A v1.0 spec requirements verified by test suite.
+
+---
+
+## v0.2.0 — Full Google A2A v1.0 Compliance 🎯
+
+This IS the "v1.0" milestone. We can honestly say:
+
+> "PiPal-A2A is fully compliant with the Google A2A v1.0 specification."
+
+- [ ] All spec methods implemented (SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask, push notification CRUD, GetExtendedAgentCard)
+- [ ] All three transport bindings (JSON-RPC, gRPC, REST)
+- [ ] All auth schemes (API Key, OAuth2, OpenID Connect)
+- [ ] AgentCard signing + verification
+- [ ] Multi-turn with contextId
+- [ ] Streaming with SSE events
+- [ ] Push notifications via webhook
+- [ ] Full spec compliance test suite passing
+- [ ] Interop verified with reference implementation
+- [ ] npm publish as `pipal-a2a`
+
+---
+
+## Non-Goals
 
 - ❌ Central orchestrator (this is P2P!)
 - ❌ MCP for agent communication (A2A is the right protocol)
 - ❌ Synthetic agent runtime (each pi terminal IS the runtime)
 - ❌ Multiple agents in one process
-- ❌ Third-party plugin system
 - ❌ Custom protocol (we use Google A2A)
+- ❌ Agent marketplace (own team only)
 
 ---
 
 ## Success Criteria
 
 1. **Spec compliant:** Google A2A v1.0 data model used throughout
-2. **Installable:** `pi install ./pipal-a2a` works
+2. **Installable:** `pi install pipal-a2a` works
 3. **Real agents:** Each pi terminal IS an agent with full LLM + tools
 4. **Real-time:** Users see agents working in their own terminals
 5. **Delegation:** LLM calls `pipal_a2a_delegate()` → Task routes → result returns

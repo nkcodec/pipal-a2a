@@ -66,11 +66,11 @@ We use the [Google A2A v1.0](https://github.com/google/A2A) data model for all a
 | **AgentInterface** | `url`, `protocolBinding`, `protocolVersion` | ✅ Full |
 | **Transport** | REST binding (spec §11) | ✅ Valid |
 | **Agent Discovery** | Shared state rendezvous (v1 simplification) | ⚠️ Custom |
-| **Auth** | None (localhost only) | ❌ v2 |
-| **JSON-RPC binding** | REST instead (spec §11 allows) | ⚠️ v2 |
-| **`/.well-known/agent-card.json`** | Shared state instead | ⚠️ v2 |
-| **Multi-turn (`contextId`)** | Single task per delegation | ❌ v2 |
-| **gRPC binding** | Not needed for v1 | ❌ v2 |
+| **Auth** | None (localhost only) | ❌ v0.1.4 |
+| **JSON-RPC binding** | REST instead (spec §11 allows) | ⚠️ v0.1.1 |
+| **`/.well-known/agent-card.json`** | Shared state instead | ⚠️ v0.1.5 |
+| **Multi-turn (`contextId`)** | Single task per delegation | ❌ v0.1.3 |
+| **gRPC binding** | Not needed for v1 | ❌ v0.1.7 |
 
 ## Quick Start
 
@@ -294,4 +294,4 @@ Client (Terminal A)              Shared State              Agent (Terminal B)
 
 ## Status
 
-**🔬 Experimental** — Google A2A v1.0 data model, P2P agent coordination, each pi terminal IS an agent.
+**🔬 v0.1.0** — Google A2A v1.0 data model, P2P agent coordination, each pi terminal IS an agent.
