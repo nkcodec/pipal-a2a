@@ -40,29 +40,53 @@ interface ExtensionConfig {
 }
 
 function loadConfig(): ExtensionConfig {
+  // 1. Load base config from file (if found)
   const paths = [
     resolve(process.cwd(), "config/pipal-a2a.yaml"),
     resolve(process.cwd(), ".pipal-a2a.yaml"),
     resolve(process.env.HOME || "~", ".pi/config/pipal-a2a.yaml"),
   ];
 
-  for (const p of paths) {
-    try {
-      const content = readFileSync(p, "utf8");
-      return load(content) as ExtensionConfig;
-    } catch {
-      continue;
-    }
-  }
-
-  // Default: auto-generated name, no skills, localhost:5000
-  return {
+  let config: ExtensionConfig = {
     sharedState: "http://localhost:5000",
     identity: {
       name: `agent-${Math.random().toString(36).slice(2, 8)}`,
       skills: [],
     },
   };
+
+  for (const p of paths) {
+    try {
+      const content = readFileSync(p, "utf8");
+      config = load(content) as ExtensionConfig;
+      break;
+    } catch {
+      continue;
+    }
+  }
+
+  // 2. Environment variables override config file
+  //    This lets each terminal have its own identity:
+  //      PIPAL_NAME=planner PIPAL_SKILLS=planning,delegation pi
+  //      PIPAL_NAME=backend PIPAL_SKILLS=code-generation pi
+  //      PIPAL_NAME=reviewer PIPAL_SKILLS=security-review pi
+  if (process.env.PIPAL_NAME) {
+    config.identity.name = process.env.PIPAL_NAME;
+  }
+  if (process.env.PIPAL_SKILLS) {
+    config.identity.skills = process.env.PIPAL_SKILLS
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (process.env.PIPAL_DESCRIPTION) {
+    config.identity.description = process.env.PIPAL_DESCRIPTION;
+  }
+  if (process.env.PIPAL_SHARED_STATE) {
+    config.sharedState = process.env.PIPAL_SHARED_STATE;
+  }
+
+  return config;
 }
 
 // ─────────────────────────────────────────────────────────────────

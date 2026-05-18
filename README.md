@@ -55,10 +55,69 @@ Terminal 1 (planner)              Terminal 2 (backend)              Terminal 3 (
 pi install ./pipal-a2a
 ```
 
-### 2. Configure Terminal 1 (planner)
+### 2. Open Terminal 1 (planner) — auto-starts the network
+
+```bash
+PIPAL_NAME=planner PIPAL_SKILLS=planning,delegation pi
+```
+
+You'll see:
+```
+[pipal-a2a] 🏠 HOST mode — shared state at http://localhost:5000
+[pipal-a2a] ✅ Online as "planner" with skills: [planning, delegation]
+```
+
+### 3. Open Terminal 2 (backend worker) — joins the network
+
+```bash
+PIPAL_NAME=backend PIPAL_SKILLS=code-generation,backend-implementation pi
+```
+
+You'll see:
+```
+[pipal-a2a] 🔗 JOIN mode — connecting to http://localhost:5000
+[pipal-a2a] ✅ Online as "backend" with skills: [code-generation, backend-implementation]
+```
+
+And Terminal 1 prints:
+```
+[pipal-a2a] 👋 backend joined the network
+```
+
+### 4. Open Terminal 3 (security reviewer) — joins too
+
+```bash
+PIPAL_NAME=reviewer PIPAL_SKILLS=security-review,code-review pi
+```
+
+All terminals now show:
+```
+/pipal-status
+# 3 agent(s) online:
+#   → planner: [planning, delegation] (you)
+#     backend: [code-generation, backend-implementation]
+#     reviewer: [security-review, code-review]
+```
+
+### 5. Delegate tasks!
+
+In Terminal 1:
+```
+> "Build me a login API with JWT auth, then review it for security"
+```
+
+The LLM calls `pipal_a2a_delegate()`:
+- **Terminal 2** receives: `📩 Delegated task from planner: "Implement login API with JWT auth"`
+  - You **see** the LLM reading files, writing code, running tests — **in real-time**
+- **Terminal 3** receives: `📩 Delegated task from planner: "Review for security"`
+  - You **see** the LLM analyzing code, finding vulnerabilities — **in real-time**
+- **Terminal 1** receives the results and continues the conversation
+
+### Config file (alternative to env vars)
+
+Create `config/pipal-a2a.yaml` for defaults:
 
 ```yaml
-# config/pipal-a2a.yaml
 sharedState: http://localhost:5000
 identity:
   name: planner
@@ -68,42 +127,7 @@ identity:
     - delegation
 ```
 
-### 3. Configure Terminal 2 (backend worker)
-
-```yaml
-# config/pipal-a2a.yaml (different terminal!)
-sharedState: http://localhost:5000
-identity:
-  name: backend-worker
-  description: "Implements backend code"
-  skills:
-    - code-generation
-    - backend-implementation
-```
-
-### 4. Open both terminals with pi
-
-```bash
-# Terminal 1
-pi
-> You: "Build me a login API with JWT auth, then review it for security"
-# LLM delegates to backend-worker, then to security-reviewer
-
-# Terminal 2
-pi
-# 📩 Delegated task from planner: "Implement login API with JWT auth"
-# You watch the LLM write code, run tests, fix errors — all in real-time
-```
-
-### 5. Check network status
-
-```
-/pipal-status
-# 3 agent(s) online:
-#   → planner: [planning, delegation] (you)
-#     backend-worker: [code-generation, backend-implementation]
-#     security-reviewer: [security-review, code-review]
-```
+Environment variables always override the config file.
 
 ## Architecture
 
