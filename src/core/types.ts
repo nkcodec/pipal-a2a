@@ -1,164 +1,301 @@
 /**
- * PiPal-A2A Core
+ * PiPal-A2A Core — Google A2A v1.0 Protocol Data Model
+ * 
+ * Aligned with: https://github.com/google/A2A specification v1.0
  * 
  * karpathy-clean-code: Frozen core — pure data types, zero infrastructure imports.
  * Core has no knowledge of HTTP, no imports from infrastructure, sdk, or application.
  */
 
-export type AgentId = string;
-export type TaskId = string;
-export type SkillId = string;
-export type Endpoint = string;
+// ─────────────────────────────────────────────────────────────────
+// Task State (Google A2A: TaskState enum)
+// ─────────────────────────────────────────────────────────────────
 
-export type TaskAction = 
-  | "execute"       // Request task execution
-  | "delegate"      // Forward to another agent
-  | "query"         // Ask question / get info
-  | "respond"       // Response to query
-  | "heartbeat"     // Liveness check
-  | "cancel";       // Cancel ongoing task
+export type TaskState =
+  | "TASK_STATE_SUBMITTED"
+  | "TASK_STATE_WORKING"
+  | "TASK_STATE_COMPLETED"
+  | "TASK_STATE_FAILED"
+  | "TASK_STATE_CANCELED"
+  | "TASK_STATE_REJECTED"
+  | "TASK_STATE_INPUT_REQUIRED"
+  | "TASK_STATE_AUTH_REQUIRED";
 
-export type TaskStatus = 
-  | "pending"       // Agent picked up task
-  | "thinking"      // Agent processing
-  | "done"          // Agent completed successfully
-  | "error"         // Agent failed
-  | "delegated"      // Agent forwarded to peer
-  | "cancelled";     // Task was cancelled
+// ─────────────────────────────────────────────────────────────────
+// Message Role (Google A2A: Role enum)
+// ─────────────────────────────────────────────────────────────────
+
+export type MessageRole = "ROLE_USER" | "ROLE_AGENT";
+
+// ─────────────────────────────────────────────────────────────────
+// Part (Google A2A: Part — unified content part)
+// ─────────────────────────────────────────────────────────────────
 
 /**
- * A2A Message — the fundamental unit of peer-to-peer communication
- * 
- * Core rule: A2AMessage is immutable after creation.
- * No side effects in core — only data structure.
+ * A content part in a message.
+ * Content type determined by which field is present: text, raw, url, or data.
  */
-export interface A2AMessage {
-  readonly id: string;           // Unique message ID
-  readonly from: AgentId;        // Sender agent
-  readonly to: AgentId;          // Recipient agent ("*" = broadcast)
-  readonly action: TaskAction;   // What to do
-  readonly payload: unknown;     // Task data (skill-specific)
-  readonly skill?: SkillId;      // Required skill for this task
-  readonly correlationId?: string; // For request/response matching
-  readonly timestamp: number;    // Unix timestamp (ms)
+export interface Part {
+  /** Text content */
+  readonly text?: string;
+  /** Base64-encoded raw bytes */
+  readonly raw?: string;
+  /** URL to external content */
+  readonly url?: string;
+  /** Structured data (JSON object) */
+  readonly data?: Record<string, unknown>;
+  /** MIME type (e.g. "text/plain", "application/json") */
+  readonly mediaType?: string;
+  /** Filename for file parts */
+  readonly filename?: string;
+  /** Optional metadata */
+  readonly metadata?: Record<string, unknown>;
 }
 
-/**
- * Task Result — output from agent after processing a message
- * 
- * Core rule: TaskResult is immutable after creation.
- * Success OR error is set — never both.
- */
-export interface TaskResult {
-  readonly taskId: string;        // Matches A2AMessage.id
-  readonly agentId: AgentId;     // Agent that produced this result
-  readonly status: "success" | "error";
-  readonly result?: unknown;     // Success payload (skill-specific)
-  readonly error?: string;       // Error message (error status only)
-  readonly skills: SkillId[];   // Skills used to produce this result
-  readonly durationMs: number;   // Execution time
-  readonly timestamp: number;    // Unix timestamp (ms)
-}
+// ─────────────────────────────────────────────────────────────────
+// Message (Google A2A: Message)
+// ─────────────────────────────────────────────────────────────────
 
 /**
- * Agent Card — public capabilities manifest
- * 
- * Agents publish their card for discovery.
- * Skills declare what this agent can do.
+ * A message in a task conversation.
+ * Messages carry parts (text, files, data) between agents.
  */
-export interface AgentCard {
-  readonly name: AgentId;
-  readonly version: string;
-  readonly description: string;
-  readonly skills: Skill[];
-  readonly endpoint: Endpoint;
-  readonly capabilities: {
-    readonly streaming: boolean;  // Supports SSE
-    readonly pushNotifications: boolean;
-  };
+export interface Message {
+  readonly role: MessageRole;
+  readonly parts: readonly Part[];
+  readonly messageId: string;
+  readonly taskId?: string;
+  readonly contextId?: string;
+  readonly referenceTaskIds?: readonly string[];
+  readonly metadata?: Record<string, unknown>;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// TaskStatus (Google A2A: TaskStatus)
+// ─────────────────────────────────────────────────────────────────
+
 /**
- * Skill — declarable capability
- * 
- * Agents declare skills to enable routing.
- * Skill matching is exact at v1 (no partial matching).
+ * Task status with state, timestamp, and optional status message.
  */
-export interface Skill {
-  readonly id: SkillId;
+export interface TaskStatus {
+  readonly state: TaskState;
+  readonly timestamp: string; // ISO 8601 UTC
+  readonly message?: Message;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Artifact (Google A2A: Artifact)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * An artifact produced by a task (e.g. generated code, reports).
+ */
+export interface Artifact {
+  readonly artifactId: string;
+  readonly parts: readonly Part[];
+  readonly name?: string;
+  readonly description?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Task (Google A2A: Task)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * The core Task object — represents a unit of work between agents.
+ */
+export interface Task {
+  readonly id: string;
+  readonly contextId?: string;
+  readonly status: TaskStatus;
+  readonly history?: readonly Message[];
+  readonly artifacts?: readonly Artifact[];
+  readonly metadata?: Record<string, unknown>;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AgentSkill (Google A2A: AgentSkill)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * A declarable capability of an agent.
+ * Used for task routing and discovery.
+ */
+export interface AgentSkill {
+  readonly id: string;
   readonly name: string;
   readonly description: string;
-  readonly inputSchema?: unknown;  // JSON Schema for task payload
-  readonly outputSchema?: unknown; // JSON Schema for result
+  readonly tags?: readonly string[];
+  readonly examples?: readonly string[];
+  readonly inputModes?: readonly string[];
+  readonly outputModes?: readonly string[];
 }
 
-/**
- * Factory functions — ensure immutability
- */
+// ─────────────────────────────────────────────────────────────────
+// AgentCapabilities (Google A2A: AgentCapabilities)
+// ─────────────────────────────────────────────────────────────────
 
-export function createMessage(
-  from: AgentId,
-  to: AgentId,
-  action: TaskAction,
-  payload: unknown,
-  options?: {
-    skill?: SkillId;
-    correlationId?: string;
-  }
-): A2AMessage {
+export interface AgentCapabilities {
+  readonly streaming?: boolean;
+  readonly pushNotifications?: boolean;
+  readonly stateTransitionHistory?: boolean;
+  readonly extendedAgentCard?: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AgentInterface (Google A2A: AgentInterface — v1.0)
+// ─────────────────────────────────────────────────────────────────
+
+export interface AgentInterface {
+  readonly url: string;
+  readonly protocolBinding: "JSONRPC" | "GRPC" | "HTTP+JSON" | string;
+  readonly protocolVersion: string;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AgentProvider (Google A2A: AgentProvider)
+// ─────────────────────────────────────────────────────────────────
+
+export interface AgentProvider {
+  readonly organization: string;
+  readonly url?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AgentCard (Google A2A: AgentCard — v1.0)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Public capabilities manifest for an agent.
+ * Published at /.well-known/agent-card.json for discovery.
+ * 
+ * This is the Google A2A v1.0 AgentCard structure.
+ * Required fields: name, description, supportedInterfaces, skills
+ */
+export interface AgentCard {
+  readonly name: string;
+  readonly description: string;
+  readonly supportedInterfaces: readonly AgentInterface[];
+  readonly provider?: AgentProvider;
+  readonly iconUrl?: string;
+  readonly version: string;
+  readonly documentationUrl?: string;
+  readonly capabilities: AgentCapabilities;
+  readonly securitySchemes?: Record<string, unknown>;
+  readonly security?: readonly Record<string, readonly string[]>[];
+  readonly defaultInputModes?: readonly string[];
+  readonly defaultOutputModes?: readonly string[];
+  readonly skills: readonly AgentSkill[];
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Factory functions — ensure immutability
+// ─────────────────────────────────────────────────────────────────
+
+export function createPart(
+  text: string,
+  options?: { mediaType?: string; metadata?: Record<string, unknown> }
+): Part {
   return Object.freeze({
-    id: crypto.randomUUID(),
-    from,
-    to,
-    action,
-    payload,
-    skill: options?.skill,
-    correlationId: options?.correlationId,
-    timestamp: Date.now(),
+    text,
+    mediaType: options?.mediaType ?? "text/plain",
+    metadata: options?.metadata,
   });
 }
 
-export function createTaskResult(
-  taskId: string,
-  agentId: AgentId,
-  status: "success" | "error",
+export function createMessage(
+  role: MessageRole,
+  parts: readonly Part[],
   options?: {
-    result?: unknown;
-    error?: string;
-    skills?: SkillId[];
-    durationMs?: number;
+    taskId?: string;
+    contextId?: string;
+    referenceTaskIds?: readonly string[];
+    metadata?: Record<string, unknown>;
   }
-): TaskResult {
+): Message {
   return Object.freeze({
-    taskId,
-    agentId,
-    status,
-    result: status === "success" ? options?.result : undefined,
-    error: status === "error" ? options?.error : undefined,
-    skills: options?.skills || [],
-    durationMs: options?.durationMs ?? 0,
-    timestamp: Date.now(),
+    role,
+    parts,
+    messageId: crypto.randomUUID(),
+    taskId: options?.taskId,
+    contextId: options?.contextId,
+    referenceTaskIds: options?.referenceTaskIds,
+    metadata: options?.metadata,
+  });
+}
+
+export function createTask(
+  id: string,
+  state: TaskState,
+  options?: {
+    contextId?: string;
+    statusMessage?: Message;
+    history?: readonly Message[];
+    artifacts?: readonly Artifact[];
+    metadata?: Record<string, unknown>;
+  }
+): Task {
+  return Object.freeze({
+    id,
+    contextId: options?.contextId,
+    status: {
+      state,
+      timestamp: new Date().toISOString(),
+      message: options?.statusMessage,
+    },
+    history: options?.history,
+    artifacts: options?.artifacts,
+    metadata: options?.metadata,
   });
 }
 
 export function createAgentCard(
-  name: AgentId,
-  endpoint: Endpoint,
-  skills: Skill[],
+  name: string,
+  url: string,
+  skills: readonly AgentSkill[],
   options?: {
-    version?: string;
     description?: string;
+    version?: string;
+    provider?: AgentProvider;
+    capabilities?: AgentCapabilities;
   }
 ): AgentCard {
   return Object.freeze({
     name,
-    version: options?.version ?? "1.0.0",
     description: options?.description ?? "",
-    skills,
-    endpoint,
+    supportedInterfaces: Object.freeze([
+      Object.freeze({
+        url,
+        protocolBinding: "JSONRPC",
+        protocolVersion: "1.0",
+      }),
+    ]),
+    provider: options?.provider,
+    version: options?.version ?? "1.0.0",
     capabilities: Object.freeze({
-      streaming: true,
-      pushNotifications: false,
+      streaming: options?.capabilities?.streaming ?? true,
+      pushNotifications: options?.capabilities?.pushNotifications ?? false,
+      stateTransitionHistory: options?.capabilities?.stateTransitionHistory ?? false,
     }),
+    skills: Object.freeze(skills),
+  });
+}
+
+export function createSkill(
+  id: string,
+  name: string,
+  description: string,
+  options?: {
+    tags?: readonly string[];
+    examples?: readonly string[];
+  }
+): AgentSkill {
+  return Object.freeze({
+    id,
+    name,
+    description,
+    tags: options?.tags,
+    examples: options?.examples,
   });
 }

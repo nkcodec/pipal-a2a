@@ -4,23 +4,20 @@
  * karpathy-clean-code: Application layer.
  * Routes tasks to agents based on skills or custom strategies.
  * Implements SDK TaskRouter interface.
+ * 
+ * In Google A2A, routing is client-side: read AgentCards, pick the right agent.
+ * This class automates that decision.
  */
 
 import type { 
   AgentCard, 
   TaskRouter, 
   RoutingStrategy,
-  A2AMessage,
+  Task,
 } from "../sdk/index.js";
 import type { AgentRegistry } from "../sdk/index.js";
 import { SkillMatcher } from "../builtin/skill-matcher.js";
 
-/**
- * DefaultTaskRouter — routes tasks to agents based on skills
- * 
- * Uses SkillMatcher by default.
- * Custom strategies can be injected via setStrategy().
- */
 export class DefaultTaskRouter implements TaskRouter {
   private strategy: RoutingStrategy;
   
@@ -31,30 +28,31 @@ export class DefaultTaskRouter implements TaskRouter {
     this.strategy = customStrategy ?? new SkillMatcher();
   }
   
-  async route(message: A2AMessage): Promise<AgentCard | undefined> {
-    const { to, skill } = message;
+  async route(task: Task): Promise<AgentCard | undefined> {
+    const targetName = task.metadata?.["to"] as string | undefined;
+    const skillHint = task.metadata?.["skill"] as string | undefined;
     
-    // Direct routing — if "to" is specified and not broadcast
-    if (to !== "*") {
-      const target = this.registry.get(to);
+    // Direct routing — target agent specified
+    if (targetName) {
+      const target = this.registry.get(targetName);
       if (target) return target;
     }
     
     // Skill-based routing — find agents with required skill
-    if (skill) {
-      const candidates = this.registry.findBySkill(skill);
+    if (skillHint) {
+      const candidates = this.registry.findBySkill(skillHint);
       if (candidates.length > 0) {
-        return this.strategy.select(message, candidates);
+        return this.strategy.select(task, candidates);
       }
     }
     
     // Fallback — pick any available agent
     const allAgents = this.registry.list();
     if (allAgents.length > 0) {
-      return this.strategy.select(message, allAgents);
+      return this.strategy.select(task, allAgents);
     }
     
-    return undefined; // No agent available
+    return undefined;
   }
   
   setStrategy(strategy: RoutingStrategy): void {

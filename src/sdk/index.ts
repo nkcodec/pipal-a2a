@@ -4,52 +4,55 @@
  * karpathy-clean-code: Public API surface for extension authors.
  * SDK contains ONLY type definitions — no implementation.
  * 
- * Import everything from here: import { A2AMessage, AgentCard, ... } from 'pipal-a2a/sdk'
+ * Aligned with Google A2A v1.0 protocol.
+ * 
+ * Import everything from here: import { Task, AgentCard, ... } from 'pipal-a2a/sdk'
  */
 
-// Core types (imported, not duplicated)
+// Core types (imported, not duplicated) — Google A2A v1.0 data model
 export {
-  type A2AMessage,
-  type TaskResult,
-  type AgentCard,
-  type Skill,
-  type AgentId,
-  type TaskId,
-  type SkillId,
-  type TaskAction,
+  // Enums
+  type TaskState,
+  type MessageRole,
+  
+  // Core data objects
+  type Part,
+  type Message,
   type TaskStatus,
-  type Endpoint,
+  type Artifact,
+  type Task,
+  
+  // Agent discovery objects
+  type AgentSkill,
+  type AgentCapabilities,
+  type AgentInterface,
+  type AgentProvider,
+  type AgentCard,
+  
+  // Factory functions
+  createPart,
   createMessage,
-  createTaskResult,
+  createTask,
   createAgentCard,
+  createSkill,
 } from '../core/types.js';
 
-import type { A2AMessage, AgentCard } from '../core/types.js';
+import type { AgentCard, Task } from '../core/types.js';
 
 // ─────────────────────────────────────────────────────────────────
-// Protocol interfaces
+// Protocol interfaces (infrastructure implements these)
 // ─────────────────────────────────────────────────────────────────
 
 /**
  * Agent registry interface — tracks available agents
  * 
- * Application layer implements this.
  * Populated dynamically from shared state SSE events.
  */
 export interface AgentRegistry {
-  /** Register an agent card */
   register(card: AgentCard): void;
-  
-  /** Remove an agent */
   unregister(agentId: string): void;
-  
-  /** Get agent card by ID */
   get(agentId: string): AgentCard | undefined;
-  
-  /** Find agents with a specific skill */
   findBySkill(skillId: string): AgentCard[];
-  
-  /** List all registered agents */
   list(): AgentCard[];
 }
 
@@ -60,10 +63,7 @@ export interface AgentRegistry {
  * Extension authors can provide custom routers via setStrategy().
  */
 export interface TaskRouter {
-  /** Route a task to an agent */
-  route(message: A2AMessage): Promise<AgentCard | undefined>;
-  
-  /** Set custom routing strategy */
+  route(task: Task): Promise<AgentCard | undefined>;
   setStrategy(strategy: RoutingStrategy): void;
 }
 
@@ -73,10 +73,7 @@ export interface TaskRouter {
  * Default implementation: SkillMatcher (in src/builtin/)
  */
 export interface RoutingStrategy {
-  /** Pick best agent for a task */
-  select(message: A2AMessage, candidates: AgentCard[]): AgentCard | undefined;
-  
-  /** Priority for this strategy (higher = runs first) */
+  select(task: Task, candidates: AgentCard[]): AgentCard | undefined;
   priority: number;
 }
 

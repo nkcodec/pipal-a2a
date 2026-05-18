@@ -1,7 +1,9 @@
 /**
  * PiPal-A2A — Pi Extension Entry Point
  * 
- * Each pi terminal IS an agent. This extension:
+ * Each pi terminal IS an agent. Google A2A v1.0 compliant.
+ * 
+ * This extension:
  *   1. On session_start: HOST or JOIN the shared state
  *   2. Registers ONE tool: pipal_a2a_delegate(task, skill?, to?)
  *   3. Receives delegated tasks via SSE → injects into pi's LLM
@@ -9,11 +11,12 @@
  * 
  * Usage: pi install ./pipal-a2a
  * 
- * Real-time flow:
- *   Terminal A: LLM calls pipal_a2a_delegate() → task sent to shared state
- *   Terminal B: SSE → task arrives → pi.sendUserMessage() → LLM works (you see it!)
- *   Terminal B: LLM finishes → result posted to shared state
- *   Terminal A: Tool receives result → LLM continues
+ * Google A2A v1.0 types used:
+ *   AgentCard — published to shared state for discovery
+ *   Task — represents a unit of work between agents
+ *   AgentSkill — declares what this agent can do
+ *   AgentInterface — declares protocol endpoint
+ *   TaskState — TASK_STATE_SUBMITTED, WORKING, COMPLETED, FAILED
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -21,7 +24,14 @@ import { Type } from "typebox";
 import { readFileSync } from "fs";
 import { load } from "js-yaml";
 import { resolve } from "path";
-import { createAgentCard, type AgentCard, type A2AMessage } from "../core/types.js";
+import {
+  createAgentCard,
+  createTask,
+  createSkill,
+  type AgentCard,
+  type Task,
+  type AgentSkill,
+} from "../core/types.js";
 import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
 import { DefaultTaskRouter } from "../application/router.js";
@@ -40,13 +50,6 @@ interface ExtensionConfig {
 }
 
 function loadConfig(): ExtensionConfig {
-  // 1. Load base config from file (if found)
-  const paths = [
-    resolve(process.cwd(), "config/pipal-a2a.yaml"),
-    resolve(process.cwd(), ".pipal-a2a.yaml"),
-    resolve(process.env.HOME || "~", ".pi/config/pipal-a2a.yaml"),
-  ];
-
   let config: ExtensionConfig = {
     sharedState: "http://localhost:5000",
     identity: {
@@ -54,6 +57,12 @@ function loadConfig(): ExtensionConfig {
       skills: [],
     },
   };
+
+  const paths = [
+    resolve(process.cwd(), "config/pipal-a2a.yaml"),
+    resolve(process.cwd(), ".pipal-a2a.yaml"),
+    resolve(process.env.HOME || "~", ".pi/config/pipal-a2a.yaml"),
+  ];
 
   for (const p of paths) {
     try {
@@ -65,26 +74,16 @@ function loadConfig(): ExtensionConfig {
     }
   }
 
-  // 2. Environment variables override config file
-  //    This lets each terminal have its own identity:
-  //      PIPAL_NAME=planner PIPAL_SKILLS=planning,delegation pi
-  //      PIPAL_NAME=backend PIPAL_SKILLS=code-generation pi
-  //      PIPAL_NAME=reviewer PIPAL_SKILLS=security-review pi
-  if (process.env.PIPAL_NAME) {
-    config.identity.name = process.env.PIPAL_NAME;
-  }
+  // Environment variables override config file
+  if (process.env.PIPAL_NAME) config.identity.name = process.env.PIPAL_NAME;
   if (process.env.PIPAL_SKILLS) {
     config.identity.skills = process.env.PIPAL_SKILLS
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  if (process.env.PIPAL_DESCRIPTION) {
-    config.identity.description = process.env.PIPAL_DESCRIPTION;
-  }
-  if (process.env.PIPAL_SHARED_STATE) {
-    config.sharedState = process.env.PIPAL_SHARED_STATE;
-  }
+  if (process.env.PIPAL_DESCRIPTION) config.identity.description = process.env.PIPAL_DESCRIPTION;
+  if (process.env.PIPAL_SHARED_STATE) config.sharedState = process.env.PIPAL_SHARED_STATE;
 
   return config;
 }
@@ -100,25 +99,21 @@ export default function (pi: ExtensionAPI) {
   let unsubscribe: (() => void) | null = null;
   let card: AgentCard | null = null;
 
-  // Local registry — mirrors shared state (populated via SSE)
   const registry = new InMemoryAgentRegistry();
   const router = new DefaultTaskRouter(registry);
 
-  // Task tracking: when this terminal receives a delegated task,
-  // we track it so we can capture the LLM response and post it back.
+  // Track delegated tasks for result capture
   let currentDelegatedTaskId: string | null = null;
   let lastAssistantText = "";
 
   // ───────────────────────────────────────────────────────────────
-  // Lifecycle: session_start → HOST or JOIN
+  // Lifecycle: session_start
   // ───────────────────────────────────────────────────────────────
   pi.on("session_start", async () => {
     const sharedStateUrl = config.sharedState;
     const parsedPort = parseInt(new URL(sharedStateUrl).port || "5000");
 
     client = new SharedStateClient(sharedStateUrl);
-
-    // Auto-detect: HOST if no shared state running, JOIN if found
     const isHost = !(await client.isReachable());
 
     if (isHost) {
@@ -129,23 +124,21 @@ export default function (pi: ExtensionAPI) {
       console.log(`[pipal-a2a] 🔗 JOIN mode — connecting to ${sharedStateUrl}`);
     }
 
-    // Build this terminal's AgentCard
+    // Build Google A2A v1.0 AgentCard
+    const skills: AgentSkill[] = config.identity.skills.map((s) =>
+      createSkill(s, s, `Skill: ${s}`)
+    );
+
     card = createAgentCard(
       config.identity.name,
       sharedStateUrl,
-      config.identity.skills.map((s) => ({
-        id: s,
-        name: s,
-        description: `Skill: ${s}`,
-      })),
+      skills,
       { description: config.identity.description || `Agent: ${config.identity.name}` }
     );
 
-    // Register in shared state
     await client.register(card);
     registry.register(card);
 
-    // Subscribe to SSE events
     unsubscribe = client.subscribe((event, data) => {
       handleSSEEvent(event, data);
     });
@@ -153,46 +146,32 @@ export default function (pi: ExtensionAPI) {
     const skillList = card.skills.length > 0
       ? card.skills.map((s) => s.id).join(", ")
       : "none";
-    console.log(`[pipal-a2a] ✅ Online as "${card.name}" with skills: [${skillList}]`);
+    console.log(`[pipal-a2a] ✅ Online as "${card.name}" [${skillList}]`);
   });
 
   // ───────────────────────────────────────────────────────────────
-  // Lifecycle: session_shutdown → leave network
+  // Lifecycle: session_shutdown
   // ───────────────────────────────────────────────────────────────
   pi.on("session_shutdown", async () => {
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
-    }
+    if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     if (client && card) {
-      try {
-        await client.unregister(card.name);
-      } catch {
-        // shared state may already be down
-      }
+      try { await client.unregister(card.name); } catch {}
     }
-    if (server) {
-      await server.stop();
-      server = null;
-    }
+    if (server) { await server.stop(); server = null; }
     console.log("[pipal-a2a] Offline");
   });
 
   // ───────────────────────────────────────────────────────────────
   // Capture LLM responses for delegated tasks
   // ───────────────────────────────────────────────────────────────
-
-  // Track the last assistant message text
   pi.on("message_update", (event: any) => {
     if (event?.content) {
-      lastAssistantText =
-        typeof event.content === "string"
-          ? event.content
-          : JSON.stringify(event.content);
+      lastAssistantText = typeof event.content === "string"
+        ? event.content
+        : JSON.stringify(event.content);
     }
   });
 
-  // When agent finishes and we're processing a delegated task, post result
   pi.on("agent_end", async () => {
     if (currentDelegatedTaskId && client) {
       const taskId = currentDelegatedTaskId;
@@ -205,11 +184,7 @@ export default function (pi: ExtensionAPI) {
         console.log(`[pipal-a2a] 📤 Result posted for task ${taskId.slice(0, 8)}`);
       } catch (error) {
         console.error(`[pipal-a2a] Failed to post result:`, error);
-        try {
-          await client.postError(taskId, String(error));
-        } catch {
-          // give up
-        }
+        try { await client.postError(taskId, String(error)); } catch {}
       }
     }
   });
@@ -217,7 +192,6 @@ export default function (pi: ExtensionAPI) {
   // ───────────────────────────────────────────────────────────────
   // SSE Event Handler
   // ───────────────────────────────────────────────────────────────
-
   function handleSSEEvent(event: string, data: any): void {
     switch (event) {
       case "agent:online":
@@ -226,22 +200,18 @@ export default function (pi: ExtensionAPI) {
           console.log(`[pipal-a2a] 👋 ${data.card.name} joined the network`);
         }
         break;
-
       case "agent:offline":
         if (data?.agentId) {
           registry.unregister(data.agentId);
           console.log(`[pipal-a2a] 👋 ${data.agentId} left the network`);
         }
         break;
-
       case "task:created":
         handleIncomingTask(data);
         break;
-
       case "task:completed":
         console.log(`[pipal-a2a] ✅ Task ${data?.taskId?.slice(0, 8)} completed`);
         break;
-
       case "task:failed":
         console.log(`[pipal-a2a] ❌ Task ${data?.taskId?.slice(0, 8)} failed: ${data?.error}`);
         break;
@@ -251,35 +221,19 @@ export default function (pi: ExtensionAPI) {
   async function handleIncomingTask(task: any): Promise<void> {
     if (!card || !client) return;
 
-    // Is this task for us?
     const isDirect = task.to === card.name;
-    const isSkillMatch =
-      !task.to &&
-      task.skill &&
-      card.skills.some((s) => s.id === task.skill);
-    const isForMe = isDirect || isSkillMatch;
-
-    if (!isForMe) return;
-
-    // Don't process our own tasks
-    if (task.from === card.name) return;
-
-    // Already processing something? Queue is v2
+    const isSkillMatch = !task.to && task.skill && card.skills.some((s) => s.id === task.skill);
+    if (!isDirect && !isSkillMatch) return;
+    if (task.from === card?.name) return;
     if (currentDelegatedTaskId) {
-      console.log(`[pipal-a2a] ⏳ Busy, rejecting task from ${task.from}`);
       await client.postError(task.id, "Agent busy with another task");
       return;
     }
 
-    console.log(
-      `[pipal-a2a] 📩 Delegated task from ${task.from}: "${task.task.slice(0, 60)}..."`
-    );
-
-    // Mark as current delegated task
+    console.log(`[pipal-a2a] 📩 Delegated task from ${task.from}: "${task.task.slice(0, 60)}..."`);
     currentDelegatedTaskId = task.id;
     lastAssistantText = "";
 
-    // Inject into pi's conversation — the user will see the LLM work in real-time!
     const taskMessage =
       `[Delegated task from ${task.from}]:\n\n${task.task}\n\n` +
       `Please complete this task using your tools. Your response will be sent back to ${task.from}.`;
@@ -295,105 +249,66 @@ export default function (pi: ExtensionAPI) {
   // ───────────────────────────────────────────────────────────────
   // Tool: pipal_a2a_delegate
   // ───────────────────────────────────────────────────────────────
-
   pi.registerTool({
     name: "pipal_a2a_delegate",
-    label: "Delegate to Agent",
+    label: "Delegate to Agent (A2A)",
     description:
-      "Send a task to another agent in the P2P network. " +
-      "Routes to the best agent based on skills. " +
-      "Waits for the result (up to 2 minutes). " +
-      "The other agent's LLM will process the task in its own terminal — the user can see it working in real-time.",
+      "Send a task to another agent in the P2P network using Google A2A protocol. " +
+      "Routes to the best agent based on skills. Waits for the result.",
     promptSnippet: "Delegate subtasks to specialized agents for parallel execution",
     promptGuidelines: [
       "Use pipal_a2a_delegate when a task benefits from a specialized agent.",
-      "Specify skill to route to the right agent: planning, code-generation, security-review, frontend-implementation, backend-implementation.",
-      "Specify to to send directly to a named agent (bypasses skill routing).",
-      "You can call this tool multiple times for parallel work across agents.",
-      "The tool waits for the other agent to complete and returns its result.",
+      "Specify skill to route by skill: planning, code-generation, security-review, etc.",
+      "Specify to to send directly to a named agent.",
+      "You can call this tool multiple times for parallel work.",
     ],
     parameters: Type.Object({
-      task: Type.String({
-        description: "The task description to delegate to the other agent",
-      }),
-      skill: Type.Optional(
-        Type.String({
-          description:
-            "Required skill ID for routing. Options: planning, delegation, code-generation, backend-implementation, frontend-implementation, security-review, code-review",
-        })
-      ),
-      to: Type.Optional(
-        Type.String({
-          description: "Specific agent ID to send to (bypasses skill routing)",
-        })
-      ),
+      task: Type.String({ description: "The task description to delegate" }),
+      skill: Type.Optional(Type.String({ description: "Required skill ID for routing" })),
+      to: Type.Optional(Type.String({ description: "Specific agent ID (bypasses routing)" })),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!client || !card) {
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Error: Agent network not started. Try /pipal-status to check.",
-            },
-          ],
+          content: [{ type: "text" as const, text: "Error: Agent network not started." }],
           details: { error: "not_started" },
         };
       }
 
       try {
-        // Route to target agent
-        const syntheticMessage: A2AMessage = {
-          id: "",
-          from: card.name,
-          to: params.to || "*",
-          action: "execute",
-          payload: params.task,
-          skill: params.skill,
-          timestamp: Date.now(),
-        };
+        // Create a Google A2A Task for routing decisions
+        const routingTask = createTask(crypto.randomUUID(), "TASK_STATE_SUBMITTED", {
+          metadata: { skill: params.skill, to: params.to },
+        });
 
-        const targetCard = await router.route(syntheticMessage);
+        const targetCard = await router.route(routingTask);
 
         if (!targetCard) {
-          const onlineAgents = await client.listAgents();
-          const agentList =
-            onlineAgents.length > 0
-              ? onlineAgents
-                  .map((a) => `${a.name} [${a.skills.map((s) => s.id).join(", ")}]`)
-                  .join(", ")
-              : "none";
+          const agents = await client.listAgents();
+          const agentList = agents.length > 0
+            ? agents.map((a) => `${a.name} [${a.skills.map((s) => s.id).join(", ")}]`).join(", ")
+            : "none";
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No agent available${
-                  params.skill ? ` with skill "${params.skill}"` : ""
-                }.\nOnline agents: ${agentList}`,
-              },
-            ],
+            content: [{
+              type: "text" as const,
+              text: `No agent available${params.skill ? ` with skill "${params.skill}"` : ""}.\nOnline: ${agentList}`,
+            }],
             details: { error: "no_agent" },
           };
         }
 
-        // Don't delegate to self
         if (targetCard.name === card.name) {
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: "Cannot delegate to yourself. Other agents in the network: " +
-                  (await client.listAgents())
-                    .filter((a) => a.name !== card!.name)
-                    .map((a) => a.name)
-                    .join(", ") || "none",
-              },
-            ],
+            content: [{
+              type: "text" as const,
+              text: "Cannot delegate to yourself. Others: " +
+                (await client.listAgents()).filter((a) => a.name !== card!.name).map((a) => a.name).join(", ") || "none",
+            }],
             details: { error: "self_delegate" },
           };
         }
 
-        // Create task in shared state
+        // Submit task to shared state
         const taskId = await client.createTask({
           from: card.name,
           to: targetCard.name,
@@ -401,56 +316,44 @@ export default function (pi: ExtensionAPI) {
           task: params.task,
         });
 
-        console.log(
-          `[pipal-a2a] 📤 Task ${taskId.slice(0, 8)} delegated to ${targetCard.name}: "${params.task.slice(0, 50)}..."`
-        );
+        console.log(`[pipal-a2a] 📤 Task ${taskId.slice(0, 8)} → ${targetCard.name}: "${params.task.slice(0, 50)}..."`);
 
-        // Wait for the other agent to process and return result
-        const result = await client.waitForResult(taskId, {
-          timeout: 120_000,
-        });
+        // Wait for result
+        const result = await client.waitForResult(taskId, { timeout: 120_000 });
 
-        if (result.status === "completed") {
-          const resultText =
-            typeof result.result === "string"
-              ? result.result
-              : JSON.stringify(result.result, null, 2);
-
+        if (result.status.state === "TASK_STATE_COMPLETED") {
+          const resultText = result.artifacts?.[0]?.parts?.[0]?.text
+            ?? JSON.stringify(result.artifacts, null, 2);
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: `**Result from ${targetCard.name}:**\n\n${resultText}`,
-              },
-            ],
+            content: [{
+              type: "text" as const,
+              text: `**Result from ${targetCard.name}:**\n\n${resultText}`,
+            }],
             details: {
               taskId,
               from: card.name,
               to: targetCard.name,
-              durationMs: result.completedAt
-                ? result.completedAt - result.createdAt
+              state: result.status.state,
+              durationMs: result.artifacts?.[0]
+                ? new Date(result.status.timestamp).getTime() - (result.metadata?.createdAt as number || 0)
                 : 0,
             },
           };
         } else {
           return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Task failed on ${targetCard.name}: ${result.error || "Unknown error"}`,
-              },
-            ],
-            details: { taskId, error: result.error },
+            content: [{
+              type: "text" as const,
+              text: `Task failed on ${targetCard.name}: ${result.metadata?.error || "Unknown error"}`,
+            }],
+            details: { taskId, error: result.metadata?.error },
           };
         }
       } catch (error) {
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Delegation error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
+          content: [{
+            type: "text" as const,
+            text: `Delegation error: ${error instanceof Error ? error.message : String(error)}`,
+          }],
           details: { error: String(error) },
         };
       }
@@ -460,31 +363,28 @@ export default function (pi: ExtensionAPI) {
   // ───────────────────────────────────────────────────────────────
   // Command: /pipal-status
   // ───────────────────────────────────────────────────────────────
-
   pi.registerCommand("pipal-status", {
-    description: "Show P2P agent network status — who's online, what skills they have",
+    description: "Show P2P agent network status (Google A2A)",
     handler: async (_args, ctx) => {
       if (!client) {
         ctx.ui.notify("Agent network not started", "warning");
         return;
       }
-
       try {
         const agents = await client.listAgents();
         if (agents.length === 0) {
           ctx.ui.notify("No agents online", "warning");
           return;
         }
-
         const lines = agents
           .map((a) => {
             const isYou = a.name === card?.name;
             const skills = a.skills.map((s) => s.id).join(", ") || "none";
-            return `  ${isYou ? "→ " : "  "}${a.name}: [${skills}]${isYou ? " (you)" : ""}`;
+            const iface = a.supportedInterfaces[0];
+            return `  ${isYou ? "→ " : "  "}${a.name}: [${skills}]${isYou ? " (you)" : ""} ${iface?.protocolBinding || ""}`;
           })
           .join("\n");
-
-        ctx.ui.notify(`${agents.length} agent(s) online:\n${lines}`, "info");
+        ctx.ui.notify(`${agents.length} agent(s) online (A2A v1.0):\n${lines}`, "info");
       } catch (error) {
         ctx.ui.notify(`Failed to get status: ${error}`, "error");
       }

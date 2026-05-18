@@ -2,38 +2,33 @@
  * PiPal-A2A Infrastructure — Shared State Server + Client
  * 
  * The rendezvous point for the P2P agent network.
+ * Uses Google A2A v1.0 Task/AgentCard data model.
  * 
  * HOST mode: first pi terminal starts this server
  * JOIN mode: subsequent terminals connect as clients
- * 
- * Responsibilities:
- *   - Agent registry (who's online)
- *   - Task queue (delegated tasks between agents)
- *   - SSE events (real-time notifications to all peers)
  */
 
 import express, { type Request, type Response } from "express";
-import type { AgentCard } from "../core/types.js";
+import type { AgentCard, Task, TaskState } from "../core/types.js";
+import { createTask } from "../core/types.js";
 
 // ─────────────────────────────────────────────────────────────────
-// Types
+// Stored Task (extends Google A2A Task with routing metadata)
 // ─────────────────────────────────────────────────────────────────
 
-export interface StoredTask {
-  id: string;
-  from: string;
-  to: string | null;       // null = any agent with matching skill
-  skill: string | null;
-  task: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-  result?: unknown;
-  error?: string;
-  createdAt: number;
-  completedAt?: number;
+export interface StoredTask extends Task {
+  /** Which agent submitted this task */
+  readonly fromAgent: string;
+  /** Target agent name (null = route by skill) */
+  readonly toAgent: string | null;
+  /** Skill hint for routing */
+  readonly skillHint: string | null;
+  /** The task description sent by the delegating agent */
+  readonly taskDescription: string;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Server (HOST mode — started by first terminal)
+// Server (HOST mode)
 // ─────────────────────────────────────────────────────────────────
 
 export class SharedStateServer {
@@ -50,7 +45,7 @@ export class SharedStateServer {
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(port, () => {
         const url = `http://localhost:${port}`;
-        console.log(`[SharedState] Rendezvous server started at ${url}`);
+        console.log(`[SharedState] Rendezvous server at ${url}`);
         resolve(url);
       });
       this.server.on("error", reject);
@@ -58,18 +53,32 @@ export class SharedStateServer {
   }
 
   async stop(): Promise<void> {
-    for (const res of this.sseClients.values()) {
-      res.end();
-    }
+    for (const res of this.sseClients.values()) res.end();
     this.sseClients.clear();
-
     return new Promise((resolve, reject) => {
       this.server?.close((err) => (err ? reject(err) : resolve()));
     });
   }
 
   private setupRoutes(): void {
-    // ── Agent Registration ────────────────────────────────────────
+    // ── Agent Card Discovery (Google A2A: /.well-known/agent-card.json) ──
+
+    // Individual agent cards
+    this.app.get("/agents/:name", (req: Request, res: Response) => {
+      const card = this.agents.get(req.params.name);
+      if (!card) {
+        res.status(404).json({ error: "Agent not found" });
+        return;
+      }
+      res.json(card);
+    });
+
+    // List all agents
+    this.app.get("/agents", (_req: Request, res: Response) => {
+      res.json(Array.from(this.agents.values()));
+    });
+
+    // ── Agent Registration (P2P extension, not in Google A2A spec) ──
 
     this.app.post("/register", (req: Request, res: Response) => {
       const card = req.body as AgentCard;
@@ -93,11 +102,7 @@ export class SharedStateServer {
       res.json({ ok: true });
     });
 
-    this.app.get("/agents", (_req: Request, res: Response) => {
-      res.json(Array.from(this.agents.values()));
-    });
-
-    // ── Task Management ───────────────────────────────────────────
+    // ── Task Management (Google A2A: SendMessage creates Tasks) ──
 
     this.app.post("/tasks", (req: Request, res: Response) => {
       const { from, to, skill, task } = req.body;
@@ -107,18 +112,24 @@ export class SharedStateServer {
       }
 
       const stored: StoredTask = {
-        id: crypto.randomUUID(),
-        from,
-        to: to || null,
-        skill: skill || null,
-        task,
-        status: "pending",
-        createdAt: Date.now(),
+        ...createTask(crypto.randomUUID(), "TASK_STATE_SUBMITTED"),
+        fromAgent: from,
+        toAgent: to || null,
+        skillHint: skill || null,
+        taskDescription: task,
       };
 
       this.tasks.set(stored.id, stored);
-      this.broadcast("task:created", stored);
-      console.log(`[SharedState] Task ${stored.id.slice(0, 8)}: ${from} → ${to || "any"} "${task.slice(0, 40)}..."`);
+      this.broadcast("task:created", {
+        taskId: stored.id,
+        from,
+        to: stored.toAgent,
+        skill: stored.skillHint,
+        task,
+      });
+      console.log(
+        `[SharedState] Task ${stored.id.slice(0, 8)}: ${from} → ${to || "any"} "${task.slice(0, 40)}..."`
+      );
       res.json({ taskId: stored.id });
     });
 
@@ -138,23 +149,46 @@ export class SharedStateServer {
         return;
       }
 
-      const { status, result, error } = req.body;
-      task.status = status || "completed";
-      task.result = result;
-      task.error = error;
-      task.completedAt = Date.now();
+      const { state, result, error } = req.body as {
+        state?: TaskState;
+        result?: unknown;
+        error?: string;
+      };
 
-      if (status === "completed") {
-        this.broadcast("task:completed", { taskId: task.id, result });
-      } else if (status === "failed") {
-        this.broadcast("task:failed", { taskId: task.id, error });
+      const finalState = state ?? "TASK_STATE_COMPLETED";
+      const updated: StoredTask = {
+        ...task,
+        status: {
+          state: finalState,
+          timestamp: new Date().toISOString(),
+        },
+        artifacts: result
+          ? [
+              {
+                artifactId: crypto.randomUUID(),
+                parts: [{ text: String(result), mediaType: "text/plain" }],
+              },
+            ]
+          : undefined,
+        metadata: {
+          ...task.metadata,
+          error: error,
+        },
+      };
+
+      this.tasks.set(req.params.id, updated);
+
+      if (finalState === "TASK_STATE_COMPLETED") {
+        this.broadcast("task:completed", { taskId: updated.id, result });
+      } else if (finalState === "TASK_STATE_FAILED") {
+        this.broadcast("task:failed", { taskId: updated.id, error });
       }
 
-      console.log(`[SharedState] Task ${task.id.slice(0, 8)} → ${task.status}`);
+      console.log(`[SharedState] Task ${updated.id.slice(0, 8)} → ${finalState}`);
       res.json({ ok: true });
     });
 
-    // ── SSE Events Stream ─────────────────────────────────────────
+    // ── SSE Events ──
 
     this.app.get("/events", (req: Request, res: Response) => {
       const clientId = (req.query.clientId as string) || crypto.randomUUID();
@@ -164,10 +198,7 @@ export class SharedStateServer {
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
 
-      const heartbeat = setInterval(() => {
-        res.write(": heartbeat\n\n");
-      }, 15000);
-
+      const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
       this.sseClients.set(clientId, res);
 
       req.on("close", () => {
@@ -178,7 +209,7 @@ export class SharedStateServer {
       res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
     });
 
-    // ── Health Check ──────────────────────────────────────────────
+    // ── Health ──
 
     this.app.get("/health", (_req: Request, res: Response) => {
       res.json({
@@ -269,7 +300,7 @@ export class SharedStateClient {
     const r = await fetch(`${this.baseUrl}/tasks/${taskId}/result`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "completed", result }),
+      body: JSON.stringify({ state: "TASK_STATE_COMPLETED", result }),
     });
     if (!r.ok) throw new Error(`Post result failed: ${r.statusText}`);
   }
@@ -278,15 +309,11 @@ export class SharedStateClient {
     const r = await fetch(`${this.baseUrl}/tasks/${taskId}/result`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "failed", error }),
+      body: JSON.stringify({ state: "TASK_STATE_FAILED", error }),
     });
     if (!r.ok) throw new Error(`Post error failed: ${r.statusText}`);
   }
 
-  /**
-   * Subscribe to SSE events from shared state.
-   * Returns an unsubscribe function.
-   */
   subscribe(handler: (event: string, data: unknown) => void): () => void {
     const controller = new AbortController();
     let closed = false;
@@ -297,7 +324,6 @@ export class SharedStateClient {
           `${this.baseUrl}/events?clientId=${crypto.randomUUID()}`,
           { signal: controller.signal }
         );
-
         if (!response.body) return;
 
         const reader = response.body.getReader();
@@ -308,7 +334,6 @@ export class SharedStateClient {
         while (!closed) {
           const { done, value } = await reader.read();
           if (done) break;
-
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
@@ -335,28 +360,26 @@ export class SharedStateClient {
     };
 
     connect();
-
     return () => {
       closed = true;
       controller.abort();
     };
   }
 
-  /**
-   * Wait for a task to complete by polling shared state.
-   * Returns the completed task.
-   */
   async waitForResult(
     taskId: string,
     options?: { timeout?: number }
   ): Promise<StoredTask> {
-    const timeout = options?.timeout ?? 120_000; // 2 minutes default
-    const interval = 2_000; // poll every 2s
+    const timeout = options?.timeout ?? 120_000;
+    const interval = 2_000;
     const start = Date.now();
 
     while (Date.now() - start < timeout) {
       const task = await this.getTask(taskId);
-      if (task.status === "completed" || task.status === "failed") {
+      if (
+        task.status.state === "TASK_STATE_COMPLETED" ||
+        task.status.state === "TASK_STATE_FAILED"
+      ) {
         return task;
       }
       await new Promise((r) => setTimeout(r, interval));

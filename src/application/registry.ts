@@ -8,23 +8,18 @@
 
 import type { AgentCard, AgentRegistry } from "../sdk/index.js";
 
-/**
- * InMemoryAgentRegistry — maintains agent cards
- * 
- * Simple Map-based registry.
- * Can be replaced with distributed registry (Redis, etc.) at v2.
- */
 export class InMemoryAgentRegistry implements AgentRegistry {
   private agents = new Map<string, AgentCard>();
   
   register(card: AgentCard): void {
     this.agents.set(card.name, card);
-    console.log(`[Registry] Registered agent: ${card.name} (${card.skills.map(s => s.id).join(", ")})`);
+    const skills = card.skills.map(s => s.id).join(", ");
+    console.log(`[Registry] Registered: ${card.name} [${skills}]`);
   }
   
   unregister(agentId: string): void {
     this.agents.delete(agentId);
-    console.log(`[Registry] Unregistered agent: ${agentId}`);
+    console.log(`[Registry] Unregistered: ${agentId}`);
   }
   
   get(agentId: string): AgentCard | undefined {
