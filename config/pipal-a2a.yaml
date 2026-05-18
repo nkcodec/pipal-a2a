@@ -1,0 +1,21 @@
+# PiPal-A2A Configuration
+#
+# Each pi terminal has its own identity.
+# Copy this file and change identity for each terminal.
+#
+# Terminal 1: name: planner,     skills: [planning, delegation]
+# Terminal 2: name: backend,     skills: [code-generation, backend-implementation]
+# Terminal 3: name: frontend,    skills: [frontend-implementation]
+# Terminal 4: name: reviewer,    skills: [security-review, code-review]
+
+# Shared state rendezvous URL
+# First terminal auto-starts the server here, others connect to it.
+sharedState: http://localhost:5000
+
+# This terminal's identity in the agent network
+identity:
+  name: planner
+  description: "Plans tasks and delegates to specialized workers"
+  skills:
+    - planning
+    - delegation

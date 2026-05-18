@@ -1,6 +1,6 @@
 # PiPal-A2A Roadmap
 
-**P2P multi-agent orchestration — a pi extension**
+**Each pi terminal IS an agent.**
 
 ---
 
@@ -8,9 +8,9 @@
 
 | Question | Answer |
 |----------|--------|
-| Q1 Core | "Route tasks to specialized LLM agents via P2P A2A messages and return results" |
+| Q1 Core | "Route tasks to specialized LLM agents via P2P delegation and return results" |
 | Q2 External extensions | B — Own team only, manual registration |
-| Q3 Extension types | PreHook: N, PostHook: N, Transformer: N, Sink: N (no plugin system needed) |
+| Q3 Extension types | None — no plugin system needed, each terminal IS an agent |
 | Q4 Language + Portal | TypeScript, `package.json` pi key |
 | Q5 Distribution | C — Git clone / local path at v1 |
 | Q6 Trust level | A — Own team, no allowlist needed |
@@ -18,97 +18,93 @@
 
 ---
 
-## Phase 1: Make It a Pi Extension ✅
+## Phase 1: Core Types ✅
 
-- [x] Create `src/extension/index.ts` — pi extension entry point
-- [x] Export `default function(pi: ExtensionAPI)`
-- [x] Register `pipal_a2a_delegate` tool via `pi.registerTool()`
-- [x] Register `/pipal-status` command via `pi.registerCommand()`
-- [x] Wire lifecycle events (`session_start`, `session_shutdown`)
-- [x] Update `package.json` with `"pi": { "extensions": [...] }` key
-- [x] Add `@earendil-works/pi-coding-agent` as peerDependency
+- [x] Define `A2AMessage`, `TaskResult`, `AgentCard`, `Skill` in core/types.ts
+- [x] Frozen — zero imports from other layers
+- [x] Factory functions with `Object.freeze()` for immutability
+- [x] Layer 1 tests (no mocks)
 
-**Exit criteria:** `pi install ./pipal-a2a` → tool appears in pi session.
+**Exit criteria:** Core types compile with no external dependencies.
 
 ---
 
-## Phase 2: Fix SDK Purity + Dependency Direction ✅
+## Phase 2: SDK + Builtin ✅
 
-- [x] Move `SkillMatcher` from `sdk/index.ts` to `src/builtin/skill-matcher.ts`
-- [x] SDK contains ZERO function bodies with logic
-- [x] Split `src/application/index.ts` into `registry.ts`, `router.ts`, `agent.ts`
-- [x] Fix `Agent.handleDelegate` — use injected Transport, not dynamic import
-- [x] Application layer has ZERO imports from infrastructure
+- [x] SDK with interfaces only (AgentRegistry, TaskRouter, RoutingStrategy)
+- [x] Zero implementation in SDK
+- [x] SkillMatcher in builtin/ (proves RoutingStrategy interface)
+- [x] Protocol compliance checks at definition time
 
-**Exit criteria:** `tsc --noEmit` passes. SDK has only types/interfaces. Application never imports infrastructure.
-
----
-
-## Phase 3: Implement PiAgentRuntime
-
-- [ ] Create `src/infrastructure/pi-runtime.ts`
-- [ ] Implement `AgentRuntime` interface using `createAgentSession()` from pi SDK
-- [ ] Each peer agent creates its own pi session for LLM execution
-- [ ] Task payload → pi session → LLM response → TaskResult
-- [ ] Error handling: session creation failure, timeout, malformed response
-
-**Exit criteria:** Agent A sends task → Agent B creates real `createAgentSession()` → LLM processes it → result flows back.
+**Exit criteria:** SDK has no function bodies with logic.
 
 ---
 
-## Phase 4: Network Bootstrap + Config
+## Phase 3: Shared State ✅
 
-- [ ] Create `src/application/network.ts` — factory function
-- [ ] `bootstrapNetwork(configPath?)` returns `{ delegate(), listAgents(), shutdown() }`
-- [ ] Shared by both extension entry point and CLI
-- [ ] Config optional — sensible defaults work with zero config
-- [ ] Port auto-assignment (no hardcoded ports)
-- [ ] Graceful startup/shutdown
+- [x] `SharedStateServer` — HTTP rendezvous server
+- [x] `SharedStateClient` — connects to shared state
+- [x] Agent registration endpoints
+- [x] Task creation + result endpoints
+- [x] SSE events for real-time notifications
+- [x] Health check endpoint
+- [x] Auto HOST/JOIN detection
 
-**Exit criteria:** Both CLI and pi extension use same `bootstrapNetwork()`. Works with zero config file.
+**Exit criteria:** Two terminals can register, exchange tasks via shared state.
 
 ---
 
-## Phase 5: Tests (Three Layers)
+## Phase 4: Pi Extension ✅
 
-- [x] Layer 1: Core type tests (no mocks, no registry)
-- [ ] Layer 2: Registry tests with stub AgentRuntime
+- [x] Extension entry point with `export default function(pi)`
+- [x] `pipal_a2a_delegate` tool registration
+- [x] `/pipal-status` command
+- [x] Auto-detect HOST vs JOIN on session_start
+- [x] SSE subscription for incoming delegated tasks
+- [x] Task injection via `pi.sendUserMessage()`
+- [x] Result capture via `message_update` + `agent_end` events
+- [x] Per-terminal config (`config/pipal-a2a.yaml`)
+
+**Exit criteria:** `pi install ./pipal-a2a` → tool works, two terminals collaborate.
+
+---
+
+## Phase 5: Tests (Current)
+
+- [x] Layer 1: Core type tests (no mocks)
+- [ ] Layer 2: SharedStateServer tests with stub client
 - [ ] Layer 2: Router tests with stub registry
-- [ ] Layer 2: Agent message handling tests
-- [ ] Layer 3: E2E — 2 real agents, real HTTP, real task exchange
-- [ ] Protocol compliance assertions in every implementation
+- [ ] Layer 3: E2E — two terminals, real HTTP, real task delegation
 
-**Exit criteria:** `npm test` runs all 3 layers with zero mocks. Stubs are real minimal implementations.
+**Exit criteria:** All three test layers pass with zero mocks.
 
 ---
 
-## Phase 6: Dashboard + Polish
+## Phase 6: Polish
 
-- [ ] SSE stream from LocalMessageBus → pi extension TUI widget
-- [ ] `/pipal-dashboard` command shows live agent status
-- [ ] Real-time task progress in pi footer/status bar
-- [ ] README matches actual CLI commands and config format
-- [ ] Clean git history
+- [ ] Real-time widget showing agent status in pi footer
+- [ ] `/pipal-dashboard` command with live task progress
+- [ ] Error recovery (SSE reconnection, task retry)
+- [ ] Task queue (handle multiple incoming tasks)
+- [ ] README with step-by-step tutorial
 - [ ] LICENSE (MIT)
 - [ ] CONTRIBUTING.md
 
-**Exit criteria:** Dashboard shows peer-to-peer events in real-time inside pi TUI.
+**Exit criteria:** Production-ready for team use.
 
 ---
 
 ## Future (v2+)
 
-These are NOT in v1. Add only when real users need them:
-
 | Feature | Why to skip at v1 |
 |---------|-------------------|
-| Agent heartbeat / liveness | No consumer exists yet |
-| Task retry / recovery | No failure scenarios observed yet |
-| Distributed Shared State (Redis) | Single-machine is fine for v1 |
-| Agent marketplace / third-party extensions | Own team only at v1 |
-| Hot reload of agents | Restart is acceptable |
+| Agent heartbeat / liveness | No long-lived idle sessions observed yet |
+| Task queue (multiple incoming) | Single-task-at-a-time is fine for v1 |
+| SSE reconnection | Restart is acceptable |
+| Streaming results (token-by-token) | Full response is fine for v1 |
+| Distributed shared state (Redis) | Single-machine is fine for team use |
 | Task cancellation | No long-running tasks yet |
-| Streaming task results | SSE covers updates, full streaming is premature |
+| Multi-machine support | LAN is v1, WAN is v2 |
 
 ---
 
@@ -116,52 +112,42 @@ These are NOT in v1. Add only when real users need them:
 
 - ❌ Central orchestrator (this is P2P!)
 - ❌ MCP for agent communication
-- ❌ Third-party extension/plugin system
+- ❌ Synthetic agent runtime wrapping `createAgentSession()`
+- ❌ Multiple agents in one process
+- ❌ Third-party plugin system
 - ❌ LangGraph conditional routing
-- ❌ Multi-language agents
 
 ---
 
 ## Success Criteria
 
-1. **Installable:** `pi install pipal-a2a` works
-2. **One tool:** LLM calls `pipal_a2a_delegate()` → task routes to peer → result returns
-3. **Real LLM:** Peer agents use `createAgentSession()` for actual execution
-4. **P2P:** Any peer can message any other without central coordinator
-5. **Observable:** `/pipal-status` shows live agent network
-6. **Tested:** Three test layers, zero mocks
+1. **Installable:** `pi install ./pipal-a2a` works
+2. **Real agents:** Each pi terminal IS an agent with full LLM + tools
+3. **Real-time:** Users see agents working in their own terminals
+4. **Delegation:** LLM calls `pipal_a2a_delegate()` → task routes to peer → result returns
+5. **Observable:** `/pipal-status` shows live network
+6. **Zero config:** Works with defaults, configurable when needed
 
 ---
 
 ## Architecture Reference
 
 ```
-pi-coding-agent (OFFICIAL BASE)
-         ▲
-         │ installs as extension
-         │
-┌────────────────────────────────────────────────────┐
-│              PiPal-A2A (EXTENSION)                 │
-│                                                    │
-│   src/extension/index.ts                           │
-│   └── export default function(pi: ExtensionAPI)   │
-│       ├── pi.registerTool("pipal_a2a_delegate")   │
-│       ├── pi.registerCommand("/pipal-status")     │
-│       └── pi.on("session_start", bootstrap)       │
-│                                                    │
-│   src/application/network.ts                       │
-│   └── bootstrapNetwork() → shared by all          │
-│                                                    │
-│   ┌────────────────────────────────────────────┐  │
-│   │         SHARED STATE                       │  │
-│   │   task, steps, artifacts (HTTP + SSE)       │  │
-│   └────────────────────────────────────────────┘  │
-│                         │                          │
-│              ┌─────────┬─────────┬─────────┐       │
-│              │    A    │    B    │    C    │       │
-│              │ planner │ worker  │ reviewer│       │
-│              │   pi    │   pi    │   pi    │       │
-│              │ session │ session │ session │       │
-│              └─────────┴─────────┴─────────┘       │
-└────────────────────────────────────────────────────┘
+Terminal 1                     Terminal 2                     Terminal 3
+┌─────────────────┐           ┌─────────────────┐           ┌─────────────────┐
+│ pi + extension   │           │ pi + extension   │           │ pi + extension   │
+│                  │           │                  │           │                  │
+│ pipal_a2a_       │           │ receives task    │           │ receives task    │
+│ delegate(tool)   │           │ via SSE → LLM    │           │ via SSE → LLM    │
+│                  │           │ processes it     │           │ processes it     │
+│ /pipal-status    │           │ (user sees it!)  │           │ (user sees it!)  │
+└────────┬─────────┘           └────────┬─────────┘           └────────┬─────────┘
+         │                              │                              │
+         └──────────── HTTP + SSE ──────┴──────────── HTTP + SSE ─────┘
+                              │
+                    ┌─────────┴──────────┐
+                    │   Shared State     │
+                    │   localhost:5000   │  ← First terminal auto-starts
+                    │   (rendezvous)     │
+                    └────────────────────┘
 ```

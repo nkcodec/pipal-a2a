@@ -1,12 +1,11 @@
 {
   "name": "pipal-a2a",
-  "version": "0.1.0",
-  "description": "P2P multi-agent orchestration — a pi extension that adds A2A agent delegation",
+  "version": "0.2.0",
+  "description": "P2P multi-agent orchestration — each pi terminal IS an agent",
   "type": "module",
   "main": "src/cli/index.ts",
   "scripts": {
-    "start": "node src/cli/index.ts",
-    "dev": "node --watch src/cli/index.ts",
+    "start": "node src/cli/index.ts serve",
     "test": "vitest run"
   },
   "pi": {
@@ -32,7 +31,8 @@
     "multi-agent",
     "peer-to-peer",
     "orchestration",
-    "pi-extension"
+    "pi-extension",
+    "p2p"
   ],
   "license": "MIT"
 }

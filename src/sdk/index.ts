@@ -24,57 +24,17 @@ export {
   createAgentCard,
 } from '../core/types.js';
 
-import type { A2AMessage, AgentCard, TaskResult } from '../core/types.js';
+import type { A2AMessage, AgentCard } from '../core/types.js';
 
 // ─────────────────────────────────────────────────────────────────
-// Protocol interfaces (infrastructure implements these)
+// Protocol interfaces
 // ─────────────────────────────────────────────────────────────────
-
-/**
- * Agent runtime interface
- * 
- * Infrastructure provides implementations: PiAgentRuntime, StubAgentRuntime
- */
-export interface AgentRuntime {
-  readonly agentId: string;
-  
-  /** Initialize agent session */
-  start(): Promise<void>;
-  
-  /** Execute a task and return result */
-  execute(payload: unknown): Promise<TaskResult>;
-  
-  /** Cleanup resources */
-  dispose(): Promise<void>;
-}
-
-/**
- * Transport interface — how agents communicate
- * 
- * Infrastructure implements: A2ATransport (HTTP + SSE)
- */
-export interface Transport {
-  /** Start listening for messages */
-  listen(port: number): Promise<void>;
-  
-  /** Stop listening */
-  close(): Promise<void>;
-  
-  /** Send message to peer */
-  send(message: A2AMessage): Promise<void>;
-  
-  /** Subscribe to incoming messages */
-  onMessage(handler: (message: A2AMessage) => void): void;
-  
-  /** Subscribe to connection events */
-  onConnect(handler: (agentId: string) => void): void;
-  onDisconnect(handler: (agentId: string) => void): void;
-}
 
 /**
  * Agent registry interface — tracks available agents
  * 
  * Application layer implements this.
+ * Populated dynamically from shared state SSE events.
  */
 export interface AgentRegistry {
   /** Register an agent card */
@@ -121,28 +81,11 @@ export interface RoutingStrategy {
 }
 
 /**
- * Message bus interface — pub/sub for local events
- * 
- * Application layer implements this.
+ * Event types from shared state SSE stream
  */
-export interface MessageBus {
-  /** Publish message to subscribers */
-  publish(channel: string, data: unknown): void;
-  
-  /** Subscribe to channel */
-  subscribe(channel: string, handler: (data: unknown) => void): () => void;
-}
-
-/**
- * Event types for SSE streaming
- */
-export type AgentEvent = 
+export type SharedStateEvent =
   | { type: "agent:online"; agentId: string; card: AgentCard }
   | { type: "agent:offline"; agentId: string }
-  | { type: "task:pending"; taskId: string; agentId: string }
-  | { type: "task:thinking"; taskId: string; agentId: string }
-  | { type: "task:done"; taskId: string; agentId: string; result: unknown }
-  | { type: "task:error"; taskId: string; agentId: string; error: string }
-  | { type: "task:delegated"; taskId: string; from: string; to: string }
-  | { type: "message:sent"; message: A2AMessage }
-  | { type: "message:received"; message: A2AMessage };
+  | { type: "task:created"; taskId: string; from: string; to: string | null; skill: string | null; task: string }
+  | { type: "task:completed"; taskId: string; result: unknown }
+  | { type: "task:failed"; taskId: string; error: string };

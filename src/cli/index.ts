@@ -1,149 +1,113 @@
 /**
- * PiPal-A2A CLI — Standalone Entry Point
+ * PiPal-A2A CLI — Standalone Shared State Server
  * 
- * karpathy-clean-code: Presentation layer.
- * Alternative to the pi extension — runs as standalone CLI.
- * Uses the same bootstrapNetwork() factory as the extension.
+ * Starts only the shared state rendezvous server.
+ * Useful for running the server separately from any pi terminal.
  * 
  * Usage:
- *   npx pipal-a2a start [agent]    Start all agents
- *   npx pipal-a2a status           Show agent registry
- *   npx pipal-a2a send <f> <t> <task>  Send task directly
+ *   npx pipal-a2a serve          Start shared state server
+ *   npx pipal-a2a agents         List agents in shared state
+ *   npx pipal-a2a health         Check shared state health
+ * 
+ * Normal usage doesn't need this CLI — the pi extension auto-starts
+ * the shared state server when it's the first terminal (HOST mode).
  */
 
-import { readFileSync } from "fs";
-import { load } from "js-yaml";
-import { resolve } from "path";
-import { 
-  createAgentCard, 
-  createMessage,
-  type Skill,
-} from "../core/types.js";
-import { A2AClient } from "../infrastructure/transport.js";
-import { bootstrapNetwork } from "../application/network.js";
+import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
 
-// ─────────────────────────────────────────────────────────────────
-// Config loading (shared with network.ts, but CLI needs it for status/send)
-// ─────────────────────────────────────────────────────────────────
+const [command, ...args] = process.argv.slice(2);
+const port = parseInt(args[0]) || 5000;
+const sharedStateUrl = `http://localhost:${port}`;
 
-interface AgentConfig {
-  name: string;
-  description?: string;
-  endpoint: string;
-  skills: Array<{ id: string; name: string; description: string }>;
-}
+async function cmdServe(): Promise<void> {
+  const server = new SharedStateServer();
+  await server.start(port);
+  console.log(`\n🚀 PiPal-A2A Shared State Server`);
+  console.log(`   URL: ${sharedStateUrl}`);
+  console.log(`   Endpoints:`);
+  console.log(`     GET  /health      Health check`);
+  console.log(`     GET  /agents      List online agents`);
+  console.log(`     GET  /events      SSE stream`);
+  console.log(`     POST /register    Register agent`);
+  console.log(`     POST /tasks       Create task`);
+  console.log(`\n   Press Ctrl+C to stop\n`);
 
-interface CliConfig {
-  agents: AgentConfig[];
-  port?: number;
-}
-
-function loadConfig(): CliConfig {
-  const configPath = resolve(process.cwd(), "config/agents.yaml");
-  try {
-    const content = readFileSync(configPath, "utf8");
-    return load(content) as CliConfig;
-  } catch {
-    return { agents: [], port: 4001 };
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Commands
-// ─────────────────────────────────────────────────────────────────
-
-async function cmdStart(agentName?: string): Promise<void> {
-  // If filtering to specific agent, we still use bootstrapNetwork
-  // but it reads all config. Filtering happens at the network level.
-  // For now, start all agents.
-  const network = await bootstrapNetwork();
-  
-  const agents = network.listAgents();
-  console.log(`[CLI] ${agents.length} agent(s) running. Press Ctrl+C to stop.`);
-  console.log(`[CLI] Agents: ${agents.map(a => a.name).join(", ")}`);
-  
-  // Graceful shutdown
   process.on("SIGINT", async () => {
-    console.log("\n[CLI] Shutting down...");
-    await network.shutdown();
+    console.log("\nShutting down...");
+    await server.stop();
     process.exit(0);
   });
 }
 
-async function cmdStatus(): Promise<void> {
-  const config = loadConfig();
-  
-  console.log("\n📋 Agent Registry\n");
-  console.log("Name          Skills                    Endpoint");
-  console.log("─".repeat(60));
-  
-  for (const agent of config.agents) {
-    const skills = agent.skills.map(s => s.id).join(", ");
-    console.log(`${agent.name.padEnd(14)} ${skills.padEnd(24)} ${agent.endpoint}`);
-  }
-  
-  console.log();
-}
-
-async function cmdSend(from: string, to: string, task: string): Promise<void> {
-  const config = loadConfig();
-  
-  const sender = config.agents.find(a => a.name === from);
-  if (!sender) {
-    console.error(`[CLI] Unknown agent: ${from}`);
+async function cmdAgents(): Promise<void> {
+  const client = new SharedStateClient(sharedStateUrl);
+  try {
+    const agents = await client.listAgents();
+    if (agents.length === 0) {
+      console.log("No agents online.");
+      return;
+    }
+    console.log(`\n📋 ${agents.length} agent(s) online:\n`);
+    for (const a of agents) {
+      const skills = a.skills.map((s) => s.id).join(", ") || "none";
+      console.log(`  ${a.name}: [${skills}]`);
+    }
+    console.log();
+  } catch {
+    console.error(`Failed to connect to shared state at ${sharedStateUrl}`);
     process.exit(1);
   }
-  
-  const receiver = config.agents.find(a => a.name === to);
-  if (!receiver) {
-    console.error(`[CLI] Unknown agent: ${to}`);
-    process.exit(1);
-  }
-  
-  const message = createMessage(from, to, "execute", { task });
-  const client = new A2AClient(receiver.endpoint);
-  await client.send(message);
-  
-  console.log(`[CLI] Sent task to ${to}: ${task}`);
 }
 
-// ─────────────────────────────────────────────────────────────────
-// CLI entry point
-// ─────────────────────────────────────────────────────────────────
-
-const [command, ...args] = process.argv.slice(2);
-
-switch (command) {
-  case "start":
-    await cmdStart(args[0]);
-    break;
-    
-  case "status":
-    await cmdStatus();
-    break;
-    
-  case "send":
-    if (args.length < 3) {
-      console.error("Usage: pipal-a2a send <from> <to> <task>");
+async function cmdHealth(): Promise<void> {
+  const client = new SharedStateClient(sharedStateUrl);
+  try {
+    const reachable = await client.isReachable();
+    if (reachable) {
+      const agents = await client.listAgents();
+      console.log(`✅ Shared state running at ${sharedStateUrl}`);
+      console.log(`   ${agents.length} agent(s) connected`);
+    } else {
+      console.log(`❌ Shared state not reachable at ${sharedStateUrl}`);
       process.exit(1);
     }
-    await cmdSend(args[0], args[1], args.slice(2).join(" "));
+  } catch {
+    console.log(`❌ Shared state not reachable at ${sharedStateUrl}`);
+    process.exit(1);
+  }
+}
+
+switch (command) {
+  case "serve":
+    await cmdServe();
     break;
-    
+
+  case "agents":
+    await cmdAgents();
+    break;
+
+  case "health":
+    await cmdHealth();
+    break;
+
   default:
     console.log(`
-PiPal-A2A — Peer-to-peer multi-agent orchestration
+PiPal-A2A — P2P Agent Network CLI
 
 Commands:
-  pipal-a2a start [agent]              Start all agents
-  pipal-a2a status                     Show agent registry
-  pipal-a2a send <from> <to> <task>    Send task directly
+  pipal-a2a serve [port]    Start shared state server (default: 5000)
+  pipal-a2a agents [port]   List online agents
+  pipal-a2a health [port]   Check if shared state is running
 
-As pi extension:
-  pi install ./pipal-a2a               Install as pi extension
-  /pipal-status                        Show agent network status
+Normal usage:
+  The pi extension auto-manages the shared state.
+  First terminal → HOST mode (starts server)
+  Other terminals → JOIN mode (connects)
 
-The LLM automatically gets the pipal_a2a_delegate tool.
+  This CLI is only needed for standalone server operation.
+
+Config:
+  config/pipal-a2a.yaml     Per-terminal identity and shared state URL
 `);
     process.exit(command ? 1 : 0);
 }
