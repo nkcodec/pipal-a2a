@@ -1,137 +1,172 @@
 # PiPal-A2A
 
-**Peer-to-peer multi-agent orchestration via A2A protocol**
+**P2P multi-agent orchestration built on `pi-coding-agent`**
 
-## Core Sentence
-Route tasks between agents using the Agent-to-Agent (A2A) protocol — agents discover and communicate directly without a central orchestrator.
+## What is PiPal-A2A?
+
+PiPal-A2A is an **extension** for the official `pi-coding-agent`. It adds:
+- P2P agent communication (A2A protocol)
+- Shared State for coordination
+- Domain-organized agents
+
+## Official Base
+
+```
+┌─────────────────────────────────────────────────────────┐
+│          pi-coding-agent (OFFICIAL)                     │
+│                                                          │
+│   Provides:                                             │
+│   - createPiAgentSession() — creates Pi Sessions        │
+│   - Pi Sessions — LLM execution environment              │
+│   - Tools: read, bash, edit, write                     │
+│                                                          │
+│   npm: @earendil-works/pi-coding-agent                 │
+└─────────────────────────────────────────────────────────┘
+                           ▲
+                           │ extends
+                           │
+┌─────────────────────────────────────────────────────────┐
+│              PiPal-A2A (EXTENSION)                     │
+│                                                          │
+│   Provides:                                             │
+│   - P2P coordination (A2A messages)                    │
+│   - Shared State (blackboard)                           │
+│   - Domain-organized agents                              │
+│                                                          │
+│   Uses:                                                 │
+│   - createPiAgentSession() from official                │
+│   - Pi Sessions for LLM execution                       │
+└─────────────────────────────────────────────────────────┘
+```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         CLI                                 │
-│              pipal-a2a <command> [args]                    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    APPLICATION                              │
-│     AgentRegistry + TaskRouter + MessageBus                │
-│     (coordinates agent discovery and task delivery)        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        CORE                                 │
-│     A2AMessage + TaskResult (pure data, frozen)            │
-│     No agent logic here — only message types               │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    INFRASTRUCTURE                          │
-│     A2AServer + A2AClient + AgentCard + SkillRegistry      │
-│     HTTP transport, SSE streaming, pi-agent integration   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    USER INTERFACE                         │
+│                                                          │
+│   User calls:                                           │
+│   → pipal_a2a_delegate(task: "Build login API")        │
+│                                                          │
+│   This is a tool function provided by PiPal-A2A         │
+│   PiPal-A2A uses pi-coding-agent internally             │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         │ HTTP + SSE
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│              SHARED STATE (HTTP Server)                 │
+│                                                          │
+│   ┌────────────────────────────────────────────────┐   │
+│   │  task: "Build login API"                      │   │
+│   │  steps: [                                      │   │
+│   │    { agent: "planner", status: "done" },      │   │
+│   │    { agent: "worker", status: "running" },   │   │
+│   │  ]                                              │   │
+│   │  artifacts: { "login.ts": "..." }             │   │
+│   └────────────────────────────────────────────────┘   │
+│                                                          │
+│   SSE: /events — real-time updates to all peers        │
+└─────────────────────────────────────────────────────────┘
+                         │
+                         │ HTTP
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│                    P2P NETWORK                          │
+│                                                          │
+│   Each peer uses pi-coding-agent:                       │
+│                                                          │
+│   ┌─────────┐              ┌─────────┐              ┌─────────┐
+│   │   A     │ ◄── A2A ──► │   B     │ ◄── A2A ──► │   C     │
+│   │ planner │              │ worker  │              │ reviewer│
+│   └────┬────┘              └────┬────┘              └────┬────┘
+│        │                         │                          │
+│        │ Pi Session             │ Pi Session               │ Pi Session
+│        │ (pi-coding-agent)      │ (pi-coding-agent)        │ (pi-coding-agent)
+│        ▼                        ▼                          ▼
+│   ┌─────────┐             ┌─────────┐             ┌─────────┐
+│   │ A calls │             │ B calls │             │ C calls │
+│   │ LLM     │             │ LLM     │             │ LLM     │
+│   └─────────┘             └─────────┘             └─────────┘
+└─────────────────────────────────────────────────────────┘
 ```
 
-## Key Design Decisions
-
-### Q1 Core: Route A2A messages between agents
-Messages flow peer-to-peer. No central brain decides execution order — agents negotiate via structured messages.
-
-### Q2 Extensions: Internal only (no third-party at v1)
-Manual registration. Portal system deferred.
-
-### Q3 Extension Types: N/A for v1
-PiPal-A2A is a protocol layer, not an extensible pipeline. Extension comes from agent discovery, not code plugins.
-
-### Q4 Language: TypeScript
-Node.js MCP SDK compatibility, express for HTTP, SSE for streaming.
-
-### Q5 Distribution: Git clone only at v1
-npm package deferred until protocol stabilizes.
-
-### Q6 Trust: Own team only
-
-### Q7 Context: Greenfield
-
----
-
-## Layer Rules (karpathy-clean-code)
-
-- **Core** knows nothing about infrastructure (no HTTP, no SDK imports)
-- **SDK** defines message types only — no implementation
-- **Infrastructure** implements A2A transport — imports Core + SDK only
-- **Application** orchestrates — no business logic
-- **CLI** wires config → registry → pipeline
-
-## A2A Protocol (Google @a2a-js/sdk pattern)
-
-### Agent Card
-```json
-{
-  "name": "orchestrator",
-  "skills": ["planning", "delegation"],
-  "endpoint": "http://localhost:4001",
-  "version": "1.0.0"
-}
-```
-
-### Task Message
-```json
-{
-  "id": "task-uuid",
-  "from": "orchestrator",
-  "to": "backend-worker",
-  "action": "execute",
-  "payload": { "task": "Implement feature X" },
-  "skill": "code-generation"
-}
-```
-
-### Events
-- `task:pending` → agent picked up task
-- `task:thinking` → agent processing
-- `task:done` → agent completed
-- `task:error` → agent failed
-- `task:delegated` → agent forwarded to peer
-
----
-
-## File Layout
+## Flow
 
 ```
-pipal-a2a/
-├── src/
-│   ├── core/           # A2AMessage, TaskResult (pure types, frozen)
-│   ├── sdk/            # Protocol interfaces (types only)
-│   ├── infrastructure/ # A2AServer, A2AClient, AgentCard, pi-agent adapter
-│   ├── application/    # AgentRegistry, TaskRouter, MessageBus
-│   └── cli/            # CLI entry point
-├── config/
-│   └── agents.yaml     # Agent definitions (name, skills, endpoint)
-├── public/
-│   └── dashboard.html  # Real-time agent communication visualization
-├── tests/
-│   └── core.test.ts    # Core type tests only
-└── package.json
+1. User → pipal_a2a_delegate(task)
+          │
+          ▼
+2. PiPal-A2A → writes task to Shared State
+          │
+          ▼
+3. ALL PEERS → read Shared State (see new task via SSE)
+          │
+          ▼
+4. AGENT A (planner) → uses pi-coding-agent
+   - Creates Pi Session
+   - Decides: "Worker B should implement"
+   - Writes to Shared State
+          │
+          ▼
+5. AGENT A → A2A message to Agent B
+          │
+          ▼
+6. AGENT B → uses pi-coding-agent
+   - Creates Pi Session
+   - Executes task (LLM)
+   - Writes result to Shared State
+          │
+          ▼
+7. Dashboard (SSE) → shows real-time progress
+          │
+          ▼
+8. User sees: "Login API built, reviewed, done"
 ```
 
----
+## Key Points
 
-## Why A2A over Central Orchestrator?
+| Component | Protocol | What it does |
+|-----------|----------|--------------|
+| **pi-coding-agent** | Official | Creates Pi Sessions, LLM execution |
+| **PiPal-A2A** | Extension | P2P coordination, Shared State |
+| **Shared State** | HTTP | Holds task, steps, artifacts |
+| **P2P Network** | A2A | Agents exchange messages |
+| **Dashboard** | SSE | Real-time visualization |
 
-| Aspect | PiPal (orchestrator) | PiPal-A2A (peer-to-peer) |
-|--------|---------------------|-------------------------|
-| Control | Central brain decides all | Agents negotiate directly |
-| Tracing | Single source of truth | Distributed events |
-| Flexibility | Fixed step order | Dynamic agent collaboration |
-| Debugging | Easy (one thread) | Complex (many threads) |
-| Use case | Pre-defined pipelines | Emergent workflows |
+## Not MCP!
 
----
+PiPal-A2A does **NOT** use MCP for agent communication. It uses:
+- **HTTP** — for Shared State read/write
+- **A2A** — for peer-to-peer messages
+- **SSE** — for real-time updates
+- **pi-coding-agent SDK** — for LLM execution
+
+## Example Usage
+
+```bash
+# Via pi-coding-agent + PiPal-A2A extension
+pi task "Build login API" --extension pipal-a2a
+```
+
+```typescript
+// Or via SDK
+import { pipal_a2a_delegate } from "pipal-a2a";
+
+const result = await pipal_a2a_delegate({
+  task: "Build login API",
+  workflow: "e-commerce"
+});
+```
+
+## karpathy-clean-code Compliance
+
+- ✅ **Core frozen** — `types.ts` has ZERO imports from other layers
+- ✅ **SDK = types only** — no implementation in `sdk/index.ts`
+- ✅ **Infrastructure implements SDK interfaces**
+- ✅ **Extension is built ON TOP of official, not inside it**
+- ✅ **No MCP for agent communication**
 
 ## Status
 
-**🔬 Experimental** — not ready for production. Focus is protocol design and minimal viable implementation.
+**🔬 Experimental** — P2P coordination layer on top of `pi-coding-agent`

@@ -1,6 +1,28 @@
 # PiPal-A2A Roadmap
 
-**Peer-to-peer multi-agent orchestration via A2A protocol**
+**P2P multi-agent orchestration built on `pi-coding-agent`**
+
+---
+
+## Pre-flight Design
+
+### Q1 Core: Route A2A messages between agents via Shared State
+Messages flow peer-to-peer through Shared State (blackboard). No central orchestrator — agents negotiate via A2A messages.
+
+### Q2 Extensions: Built ON TOP of `pi-coding-agent`
+PiPal-A2A is an extension for the official `pi-coding-agent`. Uses `createPiAgentSession()` for LLM execution.
+
+### Q3 Extension Types: N/A
+PiPal-A2A is a coordination layer, not a plugin system.
+
+### Q4 Language: TypeScript
+Node.js for HTTP server, pi-coding-agent SDK compatibility.
+
+### Q5 Distribution: Git clone only at v1
+
+### Q6 Trust: Own team only
+
+### Q7 Context: Greenfield
 
 ---
 
@@ -26,115 +48,148 @@
 
 ---
 
-## Phase 2: Infrastructure — Transport (Day 2)
+## Phase 2: Shared State (Day 2)
 
-- [ ] `A2AServer` — HTTP server with SSE for events
-- [ ] `A2AClient` — HTTP client to send messages to peers
-- [ ] Agent Card endpoint (`GET /agent-card`)
-- [ ] Task endpoint (`POST /tasks`)
-- [ ] Task streaming via SSE
+- [ ] `SharedState` class — task, steps, artifacts
+- [ ] REST endpoints: GET/POST /tasks, /artifacts
+- [ ] SSE stream for real-time updates
+- [ ] Domain-organized structure
 
-**Exit criteria:** Two agents can exchange messages via HTTP.
-
----
-
-## Phase 3: Infrastructure — pi-agent Adapter (Day 2-3)
-
-- [ ] `PiAgentAdapter` — wraps pi-agent-sdk
-- [ ] `AgentSession` — manages pi session per agent
-- [ ] Tool bridge — exposes A2A skills to pi agent
-- [ ] Skill execution — pi agent executes task, returns result
-
-**Exit criteria:** Single agent can execute a skill via pi-agent.
+**Exit criteria:** Multiple agents can read/write same state via HTTP.
 
 ---
 
-## Phase 4: Application — Registry & Router (Day 3)
+## Phase 3: P2P Network (Day 2-3)
 
-- [ ] `AgentRegistry` — maintains agent cards
-- [ ] `TaskRouter` — routes tasks to agents based on skill
-- [ ] `MessageBus` — pub/sub for local events
-- [ ] Agent discovery from config file
+- [ ] `A2ATransport` — HTTP server + SSE
+- [ ] `A2AClient` — send messages to peers
+- [ ] Agent discovery from config
+- [ ] Peer-to-peer messaging (NOT client-server)
 
-**Exit criteria:** Task routed to agent with matching skill.
+**Exit criteria:** Agent A can message Agent B directly via A2A.
 
 ---
 
-## Phase 5: Dashboard (Day 3-4)
+## Phase 4: pi-coding-agent Integration (Day 3)
+
+- [ ] `PiAgentAdapter` — wraps `createPiAgentSession()`
+- [ ] Each peer creates own Pi Session for LLM work
+- [ ] Skill execution via LLM
+
+**Exit criteria:** Agent can execute task using `pi-coding-agent` SDK.
+
+---
+
+## Phase 5: Extension Function (Day 4)
+
+- [ ] `pipal_a2a_delegate()` — main extension function
+- [ ] Called by user (replaces orchestrator role)
+- [ ] Creates initial task in Shared State
+
+**Exit criteria:** User calls `pipal_a2a_delegate()` → task appears in Shared State.
+
+---
+
+## Phase 6: Dashboard (Day 4-5)
 
 - [ ] Real-time agent communication visualization
-- [ ] SSE stream from MessageBus
+- [ ] SSE stream from Shared State
 - [ ] Task status cards per agent
-- [ ] Message timeline (peer-to-peer events)
+- [ ] Artifact viewer
 
-**Exit criteria:** Dashboard shows agent-to-agent messages in real-time.
-
----
-
-## Phase 6: CLI (Day 4)
-
-- [ ] `pipal-a2a start` — start all agents
-- [ ] `pipal-a2a agent <name>` — start single agent
-- [ ] `pipal-a2a status` — show agent registry
-- [ ] `pipal-a2a send <from> <to> <task>` — send task directly
-
-**Exit criteria:** All commands work as documented.
+**Exit criteria:** Dashboard shows peer-to-peer flow in real-time.
 
 ---
 
-## Phase 7: Integration Test (Day 5)
+## Phase 7: CLI Integration (Day 5)
+
+- [ ] `pipal-a2a start` — start all peers
+- [ ] `pipal-a2a status` — show shared state
+- [ ] Works as extension for `pi-coding-agent`
+
+**Exit criteria:** Works alongside `pi-coding-agent` CLI.
+
+---
+
+## Phase 8: Integration Test (Day 6)
 
 - [ ] Two agents exchange tasks via A2A
-- [ ] Skill delegation works (orchestrator → worker → reviewer)
+- [ ] Shared State shows progress
 - [ ] Dashboard shows peer-to-peer flow
-- [ ] Error handling (agent down, task timeout)
+- [ ] Uses `pi-coding-agent` for LLM execution
 
 **Exit criteria:** End-to-end workflow completes with dashboard visualization.
 
 ---
 
-## Phase 8: Open Source Prep
+## Phase 9: Open Source Prep
 
-- [ ] Clean git history (squash experimental commits)
-- [ ] LICENSE (Apache 2.0)
+- [ ] Clean git history
+- [ ] LICENSE (MIT)
 - [ ] CONTRIBUTING.md
-- [ ] npm publish (if protocol stabilizes)
+- [ ] npm publish
 
 ---
 
 ## Prioritized Backlog
 
 ### High Priority
-- **Skill matching** — route tasks to agents with matching skills
-- **SSE streaming** — real-time dashboard updates
-- **pi-agent integration** — actual LLM execution
+- **Shared State REST API** — HTTP server for state
+- **SSE streaming** — real-time updates
+- **pi-coding-agent integration** — use official SDK
 
 ### Medium Priority
-- **Agent heartbeat** — detect stale agents
-- **Task retry** — retry failed tasks on different agent
-- **Skill registry** — central skill catalog
+- **A2A peer discovery** — agents find each other
+- **Skill routing** — tasks route by skill
+- **Domain organization** — domain-based Shared State
 
 ### Low Priority (v2+)
-- **DNS discovery** — agents find each other via DNS
-- **Weighted routing** — skills with confidence scores
-- **Agent groups** — agent pools for parallel execution
+- **Agent heartbeat** — detect stale peers
+- **Task retry** — retry failed tasks
+- **Distributed Shared State** — Redis for scale
 
 ---
 
 ## Non-Goals (v1)
 
-- ❌ Central orchestrator (this is A2A!)
+- ❌ Central orchestrator (this is P2P!)
+- ❌ MCP for agent communication
+- ❌ Third-party extension system
 - ❌ LangGraph conditional routing
-- ❌ Third-party extension portal
-- ❌ Multi-language support (TypeScript only)
-- ❌ Persistence (in-memory only at v1)
 
 ---
 
 ## Success Criteria
 
-1. **Protocol correctness:** Agents exchange valid A2A messages
-2. **Skill routing:** Tasks route to agents with matching skills
-3. **Real-time visibility:** Dashboard shows peer-to-peer events
-4. **LLM execution:** Agents execute tasks via pi-agent-sdk
-5. **Zero central control:** No orchestrator decides execution order
+1. **Protocol correctness:** Agents exchange A2A messages via Shared State
+2. **P2P communication:** Any peer can message any other
+3. **Shared State:** All agents see same task/steps/artifacts
+4. **Real-time visibility:** Dashboard shows peer-to-peer events
+5. **pi-coding-agent integration:** Uses official SDK for LLM
+
+---
+
+## Architecture Reference
+
+```
+pi-coding-agent (OFFICIAL BASE)
+         ▲
+         │ extends
+         │
+┌────────────────────────────────────────────────────┐
+│              PiPal-A2A (EXTENSION)                 │
+│                                                    │
+│   ┌────────────────────────────────────────────┐  │
+│   │         SHARED STATE                       │  │
+│   │   task, steps, artifacts (HTTP + SSE)       │  │
+│   └────────────────────────────────────────────┘  │
+│                         │                          │
+│                         │ HTTP                      │
+│                         ▼                          │
+│              ┌─────────┬─────────┬─────────┐       │
+│              │    A    │    B    │    C    │       │
+│              │ planner │ worker  │ reviewer│       │
+│              │   pi    │   pi    │   pi    │       │
+│              └─────────┴─────────┴─────────┘       │
+└────────────────────────────────────────────────────┘
+```
