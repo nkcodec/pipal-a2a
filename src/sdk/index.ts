@@ -24,14 +24,16 @@ export {
   createAgentCard,
 } from '../core/types.js';
 
-import type { A2AMessage, AgentCard, Skill } from '../core/types.js';
+import type { A2AMessage, AgentCard, TaskResult } from '../core/types.js';
 
+// ─────────────────────────────────────────────────────────────────
 // Protocol interfaces (infrastructure implements these)
+// ─────────────────────────────────────────────────────────────────
 
 /**
  * Agent runtime interface
  * 
- * Infrastructure provides implementations: PiAgentRuntime, MockAgentRuntime
+ * Infrastructure provides implementations: PiAgentRuntime, StubAgentRuntime
  */
 export interface AgentRuntime {
   readonly agentId: string;
@@ -46,12 +48,10 @@ export interface AgentRuntime {
   dispose(): Promise<void>;
 }
 
-import type { TaskResult } from '../core/types.js';
-
 /**
  * Transport interface — how agents communicate
  * 
- * Infrastructure implements: HttpTransport (A2AServer + A2AClient)
+ * Infrastructure implements: A2ATransport (HTTP + SSE)
  */
 export interface Transport {
   /** Start listening for messages */
@@ -97,7 +97,7 @@ export interface AgentRegistry {
  * Task router interface — routes tasks to agents
  * 
  * Application layer implements default routing.
- * Extension authors can provide custom routers.
+ * Extension authors can provide custom routers via setStrategy().
  */
 export interface TaskRouter {
   /** Route a task to an agent */
@@ -109,6 +109,8 @@ export interface TaskRouter {
 
 /**
  * Routing strategy — how to pick an agent for a task
+ * 
+ * Default implementation: SkillMatcher (in src/builtin/)
  */
 export interface RoutingStrategy {
   /** Pick best agent for a task */
@@ -116,24 +118,6 @@ export interface RoutingStrategy {
   
   /** Priority for this strategy (higher = runs first) */
   priority: number;
-}
-
-/**
- * Skill matcher — built-in routing strategy
- * 
- * Matches tasks to agents with required skills.
- */
-export class SkillMatcher implements RoutingStrategy {
-  readonly priority = 50;
-  
-  select(message: A2AMessage, candidates: AgentCard[]): AgentCard | undefined {
-    if (!message.skill) {
-      return candidates[0]; // No skill required, pick first
-    }
-    return candidates.find(card => 
-      card.skills.some(s => s.id === message.skill)
-    );
-  }
 }
 
 /**

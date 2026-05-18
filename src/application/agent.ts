@@ -1,121 +1,41 @@
 /**
- * PiPal-A2A Application — Registry & Router
+ * PiPal-A2A Application — Agent
  * 
  * karpathy-clean-code: Application layer.
- * No business logic — only coordinates flow.
- * Imports Core + SDK only.
+ * Runtime instance that handles incoming messages and coordinates execution.
+ * No business logic — delegates to AgentRuntime (injected) for LLM work.
  */
 
 import type { 
-  AgentCard, 
-  AgentRegistry, 
-  TaskRouter, 
+  A2AMessage, 
+  AgentCard,
+  AgentRuntime,
+  TaskRouter,
   MessageBus,
-  RoutingStrategy,
-  A2AMessage,
+  Transport,
 } from "../sdk/index.js";
-import { SkillMatcher } from "../sdk/index.js";
 import { createMessage, createTaskResult } from "../core/types.js";
-
-/**
- * InMemoryAgentRegistry — maintains agent cards
- * 
- * Simple Map-based registry.
- * Can be replaced with distributed registry (Redis, etc.) at v2.
- */
-export class InMemoryAgentRegistry implements AgentRegistry {
-  private agents = new Map<string, AgentCard>();
-  
-  register(card: AgentCard): void {
-    this.agents.set(card.name, card);
-    console.log(`[Registry] Registered agent: ${card.name} (${card.skills.map(s => s.id).join(", ")})`);
-  }
-  
-  unregister(agentId: string): void {
-    this.agents.delete(agentId);
-    console.log(`[Registry] Unregistered agent: ${agentId}`);
-  }
-  
-  get(agentId: string): AgentCard | undefined {
-    return this.agents.get(agentId);
-  }
-  
-  findBySkill(skillId: string): AgentCard[] {
-    return Array.from(this.agents.values()).filter(card =>
-      card.skills.some(skill => skill.id === skillId)
-    );
-  }
-  
-  list(): AgentCard[] {
-    return Array.from(this.agents.values());
-  }
-}
-
-/**
- * DefaultTaskRouter — routes tasks to agents based on skills
- * 
- * Uses SkillMatcher by default.
- * Custom strategies can be injected.
- */
-export class DefaultTaskRouter implements TaskRouter {
-  private strategy: RoutingStrategy;
-  
-  constructor(
-    private registry: AgentRegistry,
-    customStrategy?: RoutingStrategy
-  ) {
-    this.strategy = customStrategy ?? new SkillMatcher();
-  }
-  
-  async route(message: A2AMessage): Promise<AgentCard | undefined> {
-    const { to, skill } = message;
-    
-    // Direct routing — if "to" is specified, use it directly
-    if (to !== "*") {
-      const target = this.registry.get(to);
-      if (target) return target;
-    }
-    
-    // Skill-based routing — find agents with required skill
-    if (skill) {
-      const candidates = this.registry.findBySkill(skill);
-      if (candidates.length > 0) {
-        return this.strategy.select(message, candidates);
-      }
-    }
-    
-    // Fallback — pick any available agent
-    const allAgents = this.registry.list();
-    if (allAgents.length > 0) {
-      return this.strategy.select(message, allAgents);
-    }
-    
-    return undefined; // No agent available
-  }
-  
-  setStrategy(strategy: RoutingStrategy): void {
-    this.strategy = strategy;
-  }
-}
 
 /**
  * Agent — runtime instance combining transport + runtime + routing
  * 
- * This is the main building block.
  * Each agent runs independently with its own HTTP server.
+ * Uses injected Transport for P2P communication (never imports infrastructure directly).
  */
 export class Agent {
   readonly agentId: string;
-  private runtime: import("../sdk/index.js").AgentRuntime | null = null;
+  private runtime: AgentRuntime | null = null;
+  private transport: Transport;
   
   constructor(
     private card: AgentCard,
-    private transport: import("../sdk/index.js").Transport,
+    transport: Transport,
     private router: TaskRouter,
     private messageBus: MessageBus,
-    runtime?: import("../sdk/index.js").AgentRuntime
+    runtime?: AgentRuntime
   ) {
     this.agentId = card.name;
+    this.transport = transport;
     this.runtime = runtime || null;
   }
   
@@ -127,7 +47,7 @@ export class Agent {
       card: this.card,
     });
     
-    // Handle incoming messages
+    // Handle incoming messages via transport (injected, not imported)
     this.transport.onMessage(async (message: A2AMessage) => {
       console.log(`[Agent:${this.agentId}] Received: ${message.action} from ${message.from}`);
       
@@ -142,7 +62,7 @@ export class Agent {
           await this.handleDelegate(message);
           break;
         case "heartbeat":
-          await this.handleHeartbeat(message);
+          await this.handleHeartbeat();
           break;
         case "cancel":
           await this.handleCancel(message);
@@ -221,9 +141,6 @@ export class Agent {
     });
     
     if (!this.runtime) {
-      createTaskResult(message.id, this.agentId, "error", {
-        error: "Agent has no runtime",
-      });
       this.messageBus.publish("task:error", {
         type: "task:error",
         taskId: message.id,
@@ -278,14 +195,11 @@ export class Agent {
       to: target.name,
     });
     
-    // Send to target agent
-    const { A2AClient } = await import("../infrastructure/transport.js");
-    const client = new A2AClient(target.endpoint);
-    await client.send(delegation);
+    // Use injected transport to send (never imports infrastructure directly)
+    await this.transport.send(delegation);
   }
   
-  private async handleHeartbeat(_message: A2AMessage): Promise<void> {
-    // Respond with heartbeat ack
+  private async handleHeartbeat(): Promise<void> {
     this.messageBus.publish("agent:online", {
       type: "agent:online",
       agentId: this.agentId,
@@ -294,7 +208,7 @@ export class Agent {
   }
   
   private async handleCancel(message: A2AMessage): Promise<void> {
-    // TODO: Implement task cancellation
     console.log(`[Agent:${this.agentId}] Cancel requested for ${message.id}`);
+    // TODO: Implement task cancellation (v2 concern)
   }
 }

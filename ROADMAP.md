@@ -1,152 +1,114 @@
 # PiPal-A2A Roadmap
 
-**P2P multi-agent orchestration built on `pi-coding-agent`**
+**P2P multi-agent orchestration — a pi extension**
 
 ---
 
-## Pre-flight Design
+## Pre-flight Design (Completed)
 
-### Q1 Core: Route A2A messages between agents via Shared State
-Messages flow peer-to-peer through Shared State (blackboard). No central orchestrator — agents negotiate via A2A messages.
-
-### Q2 Extensions: Built ON TOP of `pi-coding-agent`
-PiPal-A2A is an extension for the official `pi-coding-agent`. Uses `createPiAgentSession()` for LLM execution.
-
-### Q3 Extension Types: N/A
-PiPal-A2A is a coordination layer, not a plugin system.
-
-### Q4 Language: TypeScript
-Node.js for HTTP server, pi-coding-agent SDK compatibility.
-
-### Q5 Distribution: Git clone only at v1
-
-### Q6 Trust: Own team only
-
-### Q7 Context: Greenfield
+| Question | Answer |
+|----------|--------|
+| Q1 Core | "Route tasks to specialized LLM agents via P2P A2A messages and return results" |
+| Q2 External extensions | B — Own team only, manual registration |
+| Q3 Extension types | PreHook: N, PostHook: N, Transformer: N, Sink: N (no plugin system needed) |
+| Q4 Language + Portal | TypeScript, `package.json` pi key |
+| Q5 Distribution | C — Git clone / local path at v1 |
+| Q6 Trust level | A — Own team, no allowlist needed |
+| Q7 Context | A — Greenfield |
 
 ---
 
-## Phase 0: Core Types (Day 1) ✅
+## Phase 1: Make It a Pi Extension ✅
 
-- [x] Define `A2AMessage` core type
-- [x] Define `TaskResult` core type
-- [x] Define `AgentCard` core type
-- [x] Define `Skill` core type
-- [x] Core has ZERO infrastructure imports
+- [x] Create `src/extension/index.ts` — pi extension entry point
+- [x] Export `default function(pi: ExtensionAPI)`
+- [x] Register `pipal_a2a_delegate` tool via `pi.registerTool()`
+- [x] Register `/pipal-status` command via `pi.registerCommand()`
+- [x] Wire lifecycle events (`session_start`, `session_shutdown`)
+- [x] Update `package.json` with `"pi": { "extensions": [...] }` key
+- [x] Add `@earendil-works/pi-coding-agent` as peerDependency
 
-**Exit criteria:** Core types compile with no external dependencies.
-
----
-
-## Phase 1: SDK (Day 1)
-
-- [ ] Define protocol interfaces (no implementation)
-- [ ] One import path: `pipal-a2a/sdk`
-- [ ] Protocol compliance checked at compile time
-
-**Exit criteria:** AgentCard, TaskMessage, Skill types exported from single entry.
+**Exit criteria:** `pi install ./pipal-a2a` → tool appears in pi session.
 
 ---
 
-## Phase 2: Shared State (Day 2)
+## Phase 2: Fix SDK Purity + Dependency Direction ✅
 
-- [ ] `SharedState` class — task, steps, artifacts
-- [ ] REST endpoints: GET/POST /tasks, /artifacts
-- [ ] SSE stream for real-time updates
-- [ ] Domain-organized structure
+- [x] Move `SkillMatcher` from `sdk/index.ts` to `src/builtin/skill-matcher.ts`
+- [x] SDK contains ZERO function bodies with logic
+- [x] Split `src/application/index.ts` into `registry.ts`, `router.ts`, `agent.ts`
+- [x] Fix `Agent.handleDelegate` — use injected Transport, not dynamic import
+- [x] Application layer has ZERO imports from infrastructure
 
-**Exit criteria:** Multiple agents can read/write same state via HTTP.
-
----
-
-## Phase 3: P2P Network (Day 2-3)
-
-- [ ] `A2ATransport` — HTTP server + SSE
-- [ ] `A2AClient` — send messages to peers
-- [ ] Agent discovery from config
-- [ ] Peer-to-peer messaging (NOT client-server)
-
-**Exit criteria:** Agent A can message Agent B directly via A2A.
+**Exit criteria:** `tsc --noEmit` passes. SDK has only types/interfaces. Application never imports infrastructure.
 
 ---
 
-## Phase 4: pi-coding-agent Integration (Day 3)
+## Phase 3: Implement PiAgentRuntime
 
-- [ ] `PiAgentAdapter` — wraps `createPiAgentSession()`
-- [ ] Each peer creates own Pi Session for LLM work
-- [ ] Skill execution via LLM
+- [ ] Create `src/infrastructure/pi-runtime.ts`
+- [ ] Implement `AgentRuntime` interface using `createAgentSession()` from pi SDK
+- [ ] Each peer agent creates its own pi session for LLM execution
+- [ ] Task payload → pi session → LLM response → TaskResult
+- [ ] Error handling: session creation failure, timeout, malformed response
 
-**Exit criteria:** Agent can execute task using `pi-coding-agent` SDK.
-
----
-
-## Phase 5: Extension Function (Day 4)
-
-- [ ] `pipal_a2a_delegate()` — main extension function
-- [ ] Called by user (replaces orchestrator role)
-- [ ] Creates initial task in Shared State
-
-**Exit criteria:** User calls `pipal_a2a_delegate()` → task appears in Shared State.
+**Exit criteria:** Agent A sends task → Agent B creates real `createAgentSession()` → LLM processes it → result flows back.
 
 ---
 
-## Phase 6: Dashboard (Day 4-5)
+## Phase 4: Network Bootstrap + Config
 
-- [ ] Real-time agent communication visualization
-- [ ] SSE stream from Shared State
-- [ ] Task status cards per agent
-- [ ] Artifact viewer
+- [ ] Create `src/application/network.ts` — factory function
+- [ ] `bootstrapNetwork(configPath?)` returns `{ delegate(), listAgents(), shutdown() }`
+- [ ] Shared by both extension entry point and CLI
+- [ ] Config optional — sensible defaults work with zero config
+- [ ] Port auto-assignment (no hardcoded ports)
+- [ ] Graceful startup/shutdown
 
-**Exit criteria:** Dashboard shows peer-to-peer flow in real-time.
-
----
-
-## Phase 7: CLI Integration (Day 5)
-
-- [ ] `pipal-a2a start` — start all peers
-- [ ] `pipal-a2a status` — show shared state
-- [ ] Works as extension for `pi-coding-agent`
-
-**Exit criteria:** Works alongside `pi-coding-agent` CLI.
+**Exit criteria:** Both CLI and pi extension use same `bootstrapNetwork()`. Works with zero config file.
 
 ---
 
-## Phase 8: Integration Test (Day 6)
+## Phase 5: Tests (Three Layers)
 
-- [ ] Two agents exchange tasks via A2A
-- [ ] Shared State shows progress
-- [ ] Dashboard shows peer-to-peer flow
-- [ ] Uses `pi-coding-agent` for LLM execution
+- [x] Layer 1: Core type tests (no mocks, no registry)
+- [ ] Layer 2: Registry tests with stub AgentRuntime
+- [ ] Layer 2: Router tests with stub registry
+- [ ] Layer 2: Agent message handling tests
+- [ ] Layer 3: E2E — 2 real agents, real HTTP, real task exchange
+- [ ] Protocol compliance assertions in every implementation
 
-**Exit criteria:** End-to-end workflow completes with dashboard visualization.
+**Exit criteria:** `npm test` runs all 3 layers with zero mocks. Stubs are real minimal implementations.
 
 ---
 
-## Phase 9: Open Source Prep
+## Phase 6: Dashboard + Polish
 
+- [ ] SSE stream from LocalMessageBus → pi extension TUI widget
+- [ ] `/pipal-dashboard` command shows live agent status
+- [ ] Real-time task progress in pi footer/status bar
+- [ ] README matches actual CLI commands and config format
 - [ ] Clean git history
 - [ ] LICENSE (MIT)
 - [ ] CONTRIBUTING.md
-- [ ] npm publish
+
+**Exit criteria:** Dashboard shows peer-to-peer events in real-time inside pi TUI.
 
 ---
 
-## Prioritized Backlog
+## Future (v2+)
 
-### High Priority
-- **Shared State REST API** — HTTP server for state
-- **SSE streaming** — real-time updates
-- **pi-coding-agent integration** — use official SDK
+These are NOT in v1. Add only when real users need them:
 
-### Medium Priority
-- **A2A peer discovery** — agents find each other
-- **Skill routing** — tasks route by skill
-- **Domain organization** — domain-based Shared State
-
-### Low Priority (v2+)
-- **Agent heartbeat** — detect stale peers
-- **Task retry** — retry failed tasks
-- **Distributed Shared State** — Redis for scale
+| Feature | Why to skip at v1 |
+|---------|-------------------|
+| Agent heartbeat / liveness | No consumer exists yet |
+| Task retry / recovery | No failure scenarios observed yet |
+| Distributed Shared State (Redis) | Single-machine is fine for v1 |
+| Agent marketplace / third-party extensions | Own team only at v1 |
+| Hot reload of agents | Restart is acceptable |
+| Task cancellation | No long-running tasks yet |
+| Streaming task results | SSE covers updates, full streaming is premature |
 
 ---
 
@@ -154,18 +116,20 @@ Node.js for HTTP server, pi-coding-agent SDK compatibility.
 
 - ❌ Central orchestrator (this is P2P!)
 - ❌ MCP for agent communication
-- ❌ Third-party extension system
+- ❌ Third-party extension/plugin system
 - ❌ LangGraph conditional routing
+- ❌ Multi-language agents
 
 ---
 
 ## Success Criteria
 
-1. **Protocol correctness:** Agents exchange A2A messages via Shared State
-2. **P2P communication:** Any peer can message any other
-3. **Shared State:** All agents see same task/steps/artifacts
-4. **Real-time visibility:** Dashboard shows peer-to-peer events
-5. **pi-coding-agent integration:** Uses official SDK for LLM
+1. **Installable:** `pi install pipal-a2a` works
+2. **One tool:** LLM calls `pipal_a2a_delegate()` → task routes to peer → result returns
+3. **Real LLM:** Peer agents use `createAgentSession()` for actual execution
+4. **P2P:** Any peer can message any other without central coordinator
+5. **Observable:** `/pipal-status` shows live agent network
+6. **Tested:** Three test layers, zero mocks
 
 ---
 
@@ -174,22 +138,30 @@ Node.js for HTTP server, pi-coding-agent SDK compatibility.
 ```
 pi-coding-agent (OFFICIAL BASE)
          ▲
-         │ extends
+         │ installs as extension
          │
 ┌────────────────────────────────────────────────────┐
 │              PiPal-A2A (EXTENSION)                 │
+│                                                    │
+│   src/extension/index.ts                           │
+│   └── export default function(pi: ExtensionAPI)   │
+│       ├── pi.registerTool("pipal_a2a_delegate")   │
+│       ├── pi.registerCommand("/pipal-status")     │
+│       └── pi.on("session_start", bootstrap)       │
+│                                                    │
+│   src/application/network.ts                       │
+│   └── bootstrapNetwork() → shared by all          │
 │                                                    │
 │   ┌────────────────────────────────────────────┐  │
 │   │         SHARED STATE                       │  │
 │   │   task, steps, artifacts (HTTP + SSE)       │  │
 │   └────────────────────────────────────────────┘  │
 │                         │                          │
-│                         │ HTTP                      │
-│                         ▼                          │
 │              ┌─────────┬─────────┬─────────┐       │
 │              │    A    │    B    │    C    │       │
 │              │ planner │ worker  │ reviewer│       │
 │              │   pi    │   pi    │   pi    │       │
+│              │ session │ session │ session │       │
 │              └─────────┴─────────┴─────────┘       │
 └────────────────────────────────────────────────────┘
 ```
