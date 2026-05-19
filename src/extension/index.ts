@@ -301,33 +301,45 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  async function handleIncomingTask(task: any): Promise<void> {
+  async function handleIncomingTask(data: any): Promise<void> {
     if (!card || !client) return;
 
-    const isDirect = task.to === card.name;
-    const isSkillMatch = !task.to && task.skill && card.skills.some((s) => s.id === task.skill);
-    if (!isDirect && !isSkillMatch) return;
-    if (task.from === card?.name) return;
-    if (currentDelegatedTaskId) {
-      await client.postError(task.id, "Agent busy with another task");
+    // SSE task:created event: { taskId, from, to, skill, task }
+    const taskId = data?.taskId;
+    const from = data?.from || "unknown";
+    const to = data?.to;
+    const skill = data?.skill;
+    const description = data?.task || "";
+
+    if (!taskId) {
+      console.error(`[pipal-a2a] ❌ handleIncomingTask: no taskId in data:`, JSON.stringify(data).slice(0, 200));
       return;
     }
 
-    console.log(`[pipal-a2a] 📩 Delegated task from ${task.from}: "${task.task.slice(0, 60)}..."`);
-    currentDelegatedTaskId = task.id;
+    const isDirect = to === card.name;
+    const isSkillMatch = !to && skill && card.skills.some((s) => s.id === skill);
+    if (!isDirect && !isSkillMatch) return;
+    if (from === card?.name) return;
+    if (currentDelegatedTaskId) {
+      await client.postError(taskId, "Agent busy with another task");
+      return;
+    }
+
+    console.log(`[pipal-a2a] 📩 Delegated task from ${from}: "${String(description).slice(0, 60)}..."`);
+    currentDelegatedTaskId = taskId;
     lastAssistantText = "";
-    console.log(`[pipal-a2a] 🔒 taskId set to ${currentDelegatedTaskId.slice(0, 8)}, about to sendUserMessage`);
+    console.log(`[pipal-a2a] 🔒 taskId set to ${taskId.slice(0, 8)}, about to sendUserMessage`);
 
     const taskMessage =
-      `[Delegated task from ${task.from}]:\n\n${task.task}\n\n` +
-      `Please complete this task using your tools. Your response will be sent back to ${task.from}.`;
+      `[Delegated task from ${from}]:\n\n${description}\n\n` +
+      `Please complete this task using your tools. Your response will be sent back to ${from}.`;
 
     try {
       pi.sendUserMessage(taskMessage);
       console.log(`[pipal-a2a] ✅ sendUserMessage called, taskId still ${currentDelegatedTaskId?.slice(0, 8) ?? "null"}`);
     } catch (error) {
       console.error(`[pipal-a2a] ❌ sendUserMessage FAILED:`, error);
-      await client.postError(task.id, `Failed to inject task: ${error}`);
+      await client.postError(taskId, `Failed to inject task: ${error}`);
       currentDelegatedTaskId = null;
     }
   }
