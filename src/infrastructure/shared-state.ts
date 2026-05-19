@@ -281,6 +281,25 @@ export class SharedStateServer {
       return { tasks: all };
     });
 
+    // tasks/streamChunk — stream a text chunk for a running task (SSE broadcast)
+    this.rpc.register("tasks/streamChunk", async (params) => {
+      const { taskId, chunk } = params as { taskId?: string; chunk?: string };
+      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+      if (!chunk) return { ok: true }; // empty chunk, skip
+
+      const task = this.tasks.get(taskId);
+      if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
+
+      // Broadcast artifact_update SSE event to task subscribers
+      this.broadcastToTask(taskId, "artifact_update", {
+        taskId,
+        chunk,
+        timestamp: new Date().toISOString(),
+      });
+
+      return { ok: true };
+    });
+
     // ── JSON-RPC POST /rpc endpoint ────────────────────────────────
 
     this.app.post("/rpc", async (req: Request, res: Response) => {
@@ -532,6 +551,10 @@ export class SharedStateClient {
       state: "TASK_STATE_FAILED",
       error,
     });
+  }
+
+  async streamChunk(taskId: string, chunk: string): Promise<void> {
+    await this.rpcCall("tasks/streamChunk", { taskId, chunk });
   }
 
   subscribe(handler: (event: string, data: unknown) => void): () => void {

@@ -168,4 +168,30 @@ describe("SharedStateServer + Client", () => {
     expect(completed).toBeTruthy();
     expect(completed![1].result).toBe("Subscribed result");
   }, 10_000);
+
+  it("streamChunk broadcasts artifact_update events via SSE", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "Stream chunk test",
+    });
+
+    const events: [string, unknown][] = [];
+    const unsub = client.subscribeToTask(taskId, (event, data) => {
+      events.push([event, data]);
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Stream some chunks
+    await client.streamChunk(taskId, "Hello ");
+    await client.streamChunk(taskId, "World!");
+
+    await new Promise((r) => setTimeout(r, 300));
+    unsub();
+
+    const artifactUpdates = events.filter(([e]) => e === "artifact_update");
+    expect(artifactUpdates.length).toBeGreaterThanOrEqual(2);
+    expect((artifactUpdates[0][1] as any).chunk).toBe("Hello ");
+    expect((artifactUpdates[1][1] as any).chunk).toBe("World!");
+  }, 10_000);
 });

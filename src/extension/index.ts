@@ -30,7 +30,7 @@ import {
   type AgentCard,
   type AgentSkill,
 } from "../core/types.js";
-import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
+import { SharedStateServer, SharedStateClient, type StoredTask } from "../infrastructure/shared-state.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
 import { DefaultTaskRouter } from "../application/router.js";
 
@@ -103,6 +103,7 @@ export default function (pi: ExtensionAPI) {
   // Track delegated tasks for result capture
   let currentDelegatedTaskId: string | null = null;
   let lastAssistantText = "";
+  let lastStreamedLength = 0;
   let resultTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ───────────────────────────────────────────────────────────────
@@ -186,7 +187,7 @@ export default function (pi: ExtensionAPI) {
 
     const resultText = lastAssistantText || "Task completed";
     lastAssistantText = "";
-
+    lastStreamedLength = 0;
     console.log(`[pipal-a2a] 📤 Posting result for ${taskId.slice(0, 8)} (${resultText.length} chars)`);
     try {
       await client.postResult(taskId, resultText);
@@ -231,6 +232,16 @@ export default function (pi: ExtensionAPI) {
       if (captured) {
         lastAssistantText = captured;
         resetQuiescenceTimer();
+
+        // Stream the delta chunk to the planner via SSE
+        if (client && currentDelegatedTaskId) {
+          const prevLen = lastStreamedLength;
+          if (captured.length > prevLen) {
+            const chunk = captured.slice(prevLen);
+            lastStreamedLength = captured.length;
+            client.streamChunk(currentDelegatedTaskId, chunk).catch(() => {});
+          }
+        }
       }
     } catch {
       // Non-critical
@@ -300,6 +311,7 @@ export default function (pi: ExtensionAPI) {
     console.log(`[pipal-a2a] 📩 Delegated task from ${from}: "${String(description).slice(0, 60)}..."`);
     currentDelegatedTaskId = taskId;
     lastAssistantText = "";
+    lastStreamedLength = 0;
 
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
@@ -403,8 +415,35 @@ export default function (pi: ExtensionAPI) {
 
         console.log(`[pipal-a2a] 📤 Task ${taskId.slice(0, 8)} → ${targetCard.name}: "${params.task.slice(0, 50)}..."`);
 
-        // Wait for result
-        const result = await client.waitForResult(taskId, { timeout: 120_000 });
+        // Stream results via SSE — show each chunk via onUpdate as it arrives
+        const result = await new Promise<StoredTask>((resolve, reject) => {
+          let accumulated = "";
+          const timer = setTimeout(
+            () => reject(new Error(`Task ${taskId} timed out after 120s`)),
+            120_000,
+          );
+
+          const unsub = client.subscribeToTask(taskId, (event, data) => {
+            if (event === "artifact_update" && (data as any).chunk) {
+              accumulated += (data as any).chunk;
+              // Stream each chunk to the planner's TUI
+              if (onUpdate) {
+                onUpdate({
+                  content: [{
+                    type: "text" as const,
+                    text: `**Streaming from ${targetCard.name}:**\n${accumulated}▍`,
+                  }],
+                  details: { taskId, from: card.name, to: targetCard.name, streaming: true },
+                });
+              }
+            }
+            if (event === "task_completed" || event === "task_failed") {
+              clearTimeout(timer);
+              unsub();
+              client.getTask(taskId).then(resolve).catch(reject);
+            }
+          });
+        });
 
         if (result.status.state === "TASK_STATE_COMPLETED") {
           const resultText = result.artifacts?.[0]?.parts?.[0]?.text
