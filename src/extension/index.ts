@@ -363,11 +363,12 @@ export default function (pi: ExtensionAPI) {
       "Waits up to 2 minutes for the result.",
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
     promptGuidelines: [
-      "IMPORTANT: Always use pipal_a2a_delegate (not subagents) when delegating to another agent terminal.",
+      "IMPORTANT: You are an ORCHESTRATOR — NEVER write code or create project files yourself. ONLY delegate via pipal_a2a_delegate.",
       "Before delegating: call pipal_a2a_agents() to find correct agent names. Then use to=<name>.",
-      "Before delegating: call pipal_a2a_my_card() to check your own skills. Handle it yourself if you have matching skills.",
+      "Before delegating: call pipal_a2a_my_card() to check your own skills. Handle it yourself ONLY if you have matching skills.",
       "Delegate ONLY when: (1) task requires skills you don't have, (2) task is too complex for one agent.",
       "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
+      "If delegation returns incomplete results: delegate AGAIN with a clearer task — do NOT build it yourself.",
       "If no agent name known: omit to= and skill= — SmartRouter will pick the right agent by tag.",
     ],
     parameters: Type.Object({

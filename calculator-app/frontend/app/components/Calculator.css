@@ -1,0 +1,208 @@
+.calculator {
+  background: var(--calc-bg);
+  border-radius: 20px;
+  box-shadow:
+    0 25px 60px var(--calc-shadow),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  width: 100%;
+  max-width: 380px;
+  overflow: hidden;
+}
+
+/* ── Display ── */
+.display {
+  background: var(--display-bg);
+  padding: 24px 24px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.expression {
+  font-size: 15px;
+  color: var(--display-muted);
+  text-align: right;
+  min-height: 22px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+}
+
+.value {
+  font-size: 42px;
+  font-weight: 300;
+  color: var(--display-text);
+  text-align: right;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+}
+
+/* ── Loading bar ── */
+.loading-bar {
+  height: 2px;
+  margin-top: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.loading-bar-inner {
+  height: 100%;
+  width: 40%;
+  background: var(--loading-color);
+  border-radius: 2px;
+  animation: loading-slide 1s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* ── Error banner ── */
+.error-banner {
+  background: var(--error-bg);
+  border-bottom: 1px solid var(--error-border);
+  color: var(--error-text);
+  font-size: 13px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error-icon {
+  font-size: 14px;
+}
+
+/* ── Keypad ── */
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  padding: 1px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ── Buttons ── */
+.btn {
+  border: none;
+  outline: none;
+  cursor: pointer;
+  font-size: 22px;
+  font-weight: 400;
+  font-family: inherit;
+  padding: 20px 8px;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Number buttons */
+.btn-number {
+  background: var(--btn-number);
+  color: var(--btn-text);
+}
+
+.btn-number:hover {
+  background: var(--btn-number-hover);
+}
+
+.btn-number:active {
+  background: var(--btn-number-active);
+}
+
+/* Operator buttons */
+.btn-operator {
+  background: var(--btn-op);
+  color: var(--btn-text);
+  font-size: 24px;
+}
+
+.btn-operator:hover {
+  background: var(--btn-op-hover);
+}
+
+.btn-operator:active {
+  background: var(--btn-op-active);
+}
+
+/* Equals button */
+.btn-equals {
+  background: var(--btn-equals);
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn-equals:hover {
+  background: var(--btn-equals-hover);
+}
+
+.btn-equals:active {
+  background: var(--btn-equals-active);
+}
+
+/* Clear button */
+.btn-clear {
+  background: var(--btn-clear);
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn-clear:hover {
+  background: var(--btn-clear-hover);
+}
+
+.btn-clear:active {
+  background: var(--btn-clear-active);
+}
+
+/* Backspace button */
+.btn-backspace {
+  background: var(--btn-backspace);
+  color: #fff;
+  font-size: 20px;
+}
+
+.btn-backspace:hover {
+  background: var(--btn-backspace-hover);
+}
+
+.btn-backspace:active {
+  background: var(--btn-backspace-active);
+}
+
+/* Wide button (0 spans 2 columns) */
+.btn-wide {
+  grid-column: span 2;
+}
+
+/* ── Responsive ── */
+@media (max-width: 420px) {
+  .calculator {
+    max-width: 100%;
+    border-radius: 16px;
+  }
+
+  .value {
+    font-size: 36px;
+  }
+
+  .btn {
+    padding: 16px 6px;
+    font-size: 20px;
+  }
+}
