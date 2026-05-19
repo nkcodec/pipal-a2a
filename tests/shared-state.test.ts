@@ -1,6 +1,6 @@
 /**
  * PiPal-A2A Layer 2 Tests — Shared State
- * 
+ *
  * karpathy-clean-code: Infrastructure tests with real HTTP.
  * SharedStateServer starts on a random port, SharedStateClient calls real endpoints.
  * No mocks — real fetch, real Express, real SSE.
@@ -17,7 +17,7 @@ import { SharedStateServer, SharedStateClient, type StoredTask } from "../src/in
 let server: SharedStateServer;
 let client: SharedStateClient;
 let baseUrl: string;
-const PORT = 18001; // high port to avoid collisions
+const PORT = 18001;
 
 beforeAll(async () => {
   server = new SharedStateServer();
@@ -33,8 +33,8 @@ function makeCard(name: string, skillIds: string[]): AgentCard {
   return createAgentCard(
     name,
     baseUrl,
-    skillIds.map(id => createSkill(id, id, `Skill: ${id}`)),
-    { description: `Test agent: ${name}` }
+    skillIds.map((id) => createSkill(id, id, `Skill: ${id}`)),
+    { description: `Test agent: ${name}` },
   );
 }
 
@@ -47,7 +47,7 @@ describe("SharedStateServer + Client", () => {
   it("registers an agent", async () => {
     const card = makeCard("planner", ["planning"]);
     await client.register(card);
-    
+
     const agents = await client.listAgents();
     expect(agents).toHaveLength(1);
     expect(agents[0].name).toBe("planner");
@@ -55,17 +55,17 @@ describe("SharedStateServer + Client", () => {
 
   it("registers multiple agents", async () => {
     await client.register(makeCard("backend", ["code-generation"]));
-    
+
     const agents = await client.listAgents();
     expect(agents).toHaveLength(2);
-    const names = agents.map(a => a.name);
+    const names = agents.map((a) => a.name);
     expect(names).toContain("planner");
     expect(names).toContain("backend");
   });
 
   it("unregisters an agent", async () => {
     await client.unregister("backend");
-    
+
     const agents = await client.listAgents();
     expect(agents).toHaveLength(1);
     expect(agents[0].name).toBe("planner");
@@ -77,9 +77,9 @@ describe("SharedStateServer + Client", () => {
       to: "backend",
       task: "Build login API",
     });
-    
+
     expect(taskId).toBeTruthy();
-    
+
     const task = await client.getTask(taskId);
     expect(task.id).toBe(taskId);
     expect(task.status.state).toBe("TASK_STATE_SUBMITTED");
@@ -93,9 +93,9 @@ describe("SharedStateServer + Client", () => {
       from: "planner",
       task: "Review code",
     });
-    
+
     await client.postResult(taskId, "Code looks good!");
-    
+
     const task = await client.getTask(taskId);
     expect(task.status.state).toBe("TASK_STATE_COMPLETED");
     expect(task.artifacts).toHaveLength(1);
@@ -107,17 +107,17 @@ describe("SharedStateServer + Client", () => {
       from: "planner",
       task: "Do impossible thing",
     });
-    
+
     await client.postError(taskId, "Not enough compute");
-    
+
     const task = await client.getTask(taskId);
     expect(task.status.state).toBe("TASK_STATE_FAILED");
     expect(task.metadata?.error).toBe("Not enough compute");
   });
 
-  it("rejects task without 'from' field", async () => {
+  it("rejects task without task description", async () => {
     await expect(
-      client.createTask({ from: "", task: "test" })
+      client.createTask({ from: "planner", task: "" }),
     ).rejects.toThrow();
   });
 
@@ -126,7 +126,7 @@ describe("SharedStateServer + Client", () => {
       from: "planner",
       task: "Timestamp test",
     });
-    
+
     const task = await client.getTask(taskId);
     expect(task.status.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });

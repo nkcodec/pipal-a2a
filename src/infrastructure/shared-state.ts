@@ -1,34 +1,61 @@
 /**
  * PiPal-A2A Infrastructure — Shared State Server + Client
- * 
- * The rendezvous point for the P2P agent network.
- * Uses Google A2A v1.0 Task/AgentCard data model.
- * 
- * HOST mode: first pi terminal starts this server
- * JOIN mode: subsequent terminals connect as clients
+ *
+ * HTTP rendezvous for P2P agent network.
+ * Agent registration: REST (P2P extension, not in A2A spec)
+ * Task operations: JSON-RPC 2.0 (Google A2A spec §9)
+ *
+ * Single /rpc endpoint handles all task methods:
+ *   POST /rpc  { "jsonrpc": "2.0", "method": "tasks/sendMessage", "params": {...}, "id": 1 }
+ *
+ * Agent discovery remains REST for simplicity:
+ *   GET /agents     — list all agents
+ *   POST /register  — register agent
  */
 
 import express, { type Request, type Response } from "express";
 import type { AgentCard, Task, TaskState } from "../core/types.js";
 import { createTask } from "../core/types.js";
+import {
+  JsonRpcDispatcher,
+  type JsonRpcRequest,
+  type JsonRpcResponse,
+  type JsonRpcError,
+  JSONRPC_CODES,
+} from "./jsonrpc.js";
 
 // ─────────────────────────────────────────────────────────────────
-// Stored Task (extends Google A2A Task with routing metadata)
+// Stored Task
 // ─────────────────────────────────────────────────────────────────
 
 export interface StoredTask extends Task {
-  /** Which agent submitted this task */
   readonly fromAgent: string;
-  /** Target agent name (null = route by skill) */
   readonly toAgent: string | null;
-  /** Skill hint for routing */
   readonly skillHint: string | null;
-  /** The task description sent by the delegating agent */
   readonly taskDescription: string;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Server (HOST mode)
+// JSON-RPC Helpers
+// ─────────────────────────────────────────────────────────────────
+
+function errorResp(id: number | string | null, err: JsonRpcError): JsonRpcResponse {
+  return { jsonrpc: "2.0", id, error: err };
+}
+
+function okResp(id: number | string | null, result: unknown): JsonRpcResponse {
+  return { jsonrpc: "2.0", id, result };
+}
+
+function taskNotFound(id: number | string | null, taskId: string): JsonRpcResponse {
+  return errorResp(id, {
+    code: JSONRPC_CODES.TASK_NOT_FOUND,
+    message: `Task '${taskId}' not found`,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Server
 // ─────────────────────────────────────────────────────────────────
 
 export class SharedStateServer {
@@ -38,9 +65,14 @@ export class SharedStateServer {
   private tasks = new Map<string, StoredTask>();
   private sseClients = new Map<string, Response>();
 
+  // JSON-RPC dispatcher for task methods
+  private rpc = new JsonRpcDispatcher();
+
   async start(port: number): Promise<string> {
     this.app.use(express.json());
-    this.setupRoutes();
+    this.setupAgentRoutes();
+    this.setupRpcRoutes();
+    this.setupSseRoutes();
 
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(port, () => {
@@ -60,25 +92,20 @@ export class SharedStateServer {
     });
   }
 
-  private setupRoutes(): void {
-    // ── Agent Card Discovery (Google A2A: /.well-known/agent-card.json) ──
+  // ── Agent Routes (REST — P2P extension) ─────────────────────────
 
-    // Individual agent cards
+  private setupAgentRoutes(): void {
     this.app.get("/agents/:name", (req: Request, res: Response) => {
       const card = this.agents.get(req.params.name);
-      if (!card) {
-        res.status(404).json({ error: "Agent not found" });
-        return;
-      }
+      if (!card) return res.status(404).json({ error: "Agent not found" });
+      res.setHeader("A2A-Version", "1.0");
       res.json(card);
     });
 
-    // List all agents
     this.app.get("/agents", (_req: Request, res: Response) => {
+      res.setHeader("A2A-Version", "1.0");
       res.json(Array.from(this.agents.values()));
     });
-
-    // ── Agent Registration (P2P extension, not in Google A2A spec) ──
 
     this.app.post("/register", (req: Request, res: Response) => {
       const card = req.body as AgentCard;
@@ -101,19 +128,30 @@ export class SharedStateServer {
       }
       res.json({ ok: true });
     });
+  }
 
-    // ── Task Management (Google A2A: SendMessage creates Tasks) ──
+  // ── JSON-RPC Task Routes (Google A2A spec §9) ───────────────────
 
-    this.app.post("/tasks", (req: Request, res: Response) => {
-      const { from, to, skill, task } = req.body;
-      if (!from || !task) {
-        res.status(400).json({ error: "Task requires 'from' and 'task'" });
-        return;
-      }
+  private setupRpcRoutes(): void {
+    // tasks/sendMessage — create a new task
+    this.rpc.register("tasks/sendMessage", async (params) => {
+      const { task, skill, to, id: reqId } = params as {
+        task?: string;
+        skill?: string;
+        to?: string;
+        id?: string;
+      };
+      if (!task) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "task is required" };
+
+      // Get agentName from params if provided (for A2A compliance)
+      const agentName = (params as Record<string, unknown>).agentName as string | undefined;
+
+      // For now, from/to are in params — stored as routing metadata
+      const fromAgent = agentName || "anonymous";
 
       const stored: StoredTask = {
         ...createTask(crypto.randomUUID(), "TASK_STATE_SUBMITTED"),
-        fromAgent: from,
+        fromAgent,
         toAgent: to || null,
         skillHint: skill || null,
         taskDescription: task,
@@ -122,38 +160,69 @@ export class SharedStateServer {
       this.tasks.set(stored.id, stored);
       this.broadcast("task:created", {
         taskId: stored.id,
-        from,
+        from: stored.fromAgent,
         to: stored.toAgent,
         skill: stored.skillHint,
-        task,
+        task: stored.taskDescription,
       });
       console.log(
-        `[SharedState] Task ${stored.id.slice(0, 8)}: ${from} → ${to || "any"} "${task.slice(0, 40)}..."`
+        `[SharedState] Task ${stored.id.slice(0, 8)}: ${fromAgent} → ${to || "any"} "${task.slice(0, 40)}..."`
       );
-      res.json({ taskId: stored.id });
+
+      // Return A2A SendMessage result: full task object
+      return { taskId: stored.id, task: stored };
     });
 
-    this.app.get("/tasks/:id", (req: Request, res: Response) => {
-      const task = this.tasks.get(req.params.id);
-      if (!task) {
-        res.status(404).json({ error: "Task not found" });
-        return;
-      }
-      res.json(task);
+    // tasks/getTask — retrieve a task
+    this.rpc.register("tasks/getTask", async (params) => {
+      const { taskId } = params as { taskId?: string };
+      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+
+      const task = this.tasks.get(taskId);
+      if (!task) return { task: null };
+      return { task };
     });
 
-    this.app.post("/tasks/:id/result", (req: Request, res: Response) => {
-      const task = this.tasks.get(req.params.id);
-      if (!task) {
-        res.status(404).json({ error: "Task not found" });
-        return;
+    // tasks/cancelTask — cancel a task
+    this.rpc.register("tasks/cancelTask", async (params) => {
+      const { taskId } = params as { taskId?: string };
+      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+
+      const task = this.tasks.get(taskId);
+      if (!task) return { task: null };
+      if (task.status.state === "TASK_STATE_COMPLETED") {
+        return {
+          error: {
+            code: JSONRPC_CODES.TASK_NOT_CANCELABLE,
+            message: `Task '${taskId}' is already completed`,
+          },
+        };
       }
 
-      const { state, result, error } = req.body as {
+      const updated: StoredTask = {
+        ...task,
+        status: {
+          state: "TASK_STATE_CANCELED",
+          timestamp: new Date().toISOString(),
+        },
+      };
+      this.tasks.set(taskId, updated);
+      this.broadcast("task:failed", { taskId, error: "Task was cancelled" });
+      return { task: updated };
+    });
+
+    // tasks/resolveTask — post a result (called by completing agent)
+    this.rpc.register("tasks/resolveTask", async (params) => {
+      const { taskId, state, result, error } = params as {
+        taskId?: string;
         state?: TaskState;
         result?: unknown;
         error?: string;
       };
+      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+
+      const task = this.tasks.get(taskId);
+      if (!task) return { task: null };
 
       const finalState = state ?? "TASK_STATE_COMPLETED";
       const updated: StoredTask = {
@@ -172,24 +241,58 @@ export class SharedStateServer {
           : undefined,
         metadata: {
           ...task.metadata,
-          error: error,
+          error,
         },
       };
 
-      this.tasks.set(req.params.id, updated);
+      this.tasks.set(taskId, updated);
 
       if (finalState === "TASK_STATE_COMPLETED") {
         this.broadcast("task:completed", { taskId: updated.id, result });
       } else if (finalState === "TASK_STATE_FAILED") {
         this.broadcast("task:failed", { taskId: updated.id, error });
+      } else if (finalState === "TASK_STATE_CANCELED") {
+        this.broadcast("task:failed", { taskId: updated.id, error: "Task was cancelled" });
       }
 
       console.log(`[SharedState] Task ${updated.id.slice(0, 8)} → ${finalState}`);
-      res.json({ ok: true });
+      return { task: updated };
     });
 
-    // ── SSE Events ──
+    // tasks/listTasks — list tasks (optionally filtered by agent)
+    this.rpc.register("tasks/listTasks", async (params) => {
+      const { agentName } = params as { agentName?: string };
+      const all = Array.from(this.tasks.values());
+      if (agentName) {
+        return { tasks: all.filter((t) => t.fromAgent === agentName || t.toAgent === agentName) };
+      }
+      return { tasks: all };
+    });
 
+    // ── JSON-RPC POST /rpc endpoint ────────────────────────────────
+
+    this.app.post("/rpc", async (req: Request, res: Response) => {
+      res.setHeader("A2A-Version", "1.0");
+      res.setHeader("Content-Type", "application/json");
+
+      const body = req.body;
+
+      // Batch request
+      if (Array.isArray(body)) {
+        const responses = await this.rpc.dispatchBatch(body as JsonRpcRequest[]);
+        res.json(responses);
+        return;
+      }
+
+      // Single request
+      const response = await this.rpc.dispatch(body as JsonRpcRequest);
+      res.json(response);
+    });
+  }
+
+  // ── SSE Routes (unchanged — used for event subscription) ────────
+
+  private setupSseRoutes(): void {
     this.app.get("/events", (req: Request, res: Response) => {
       const clientId = (req.query.clientId as string) || crypto.randomUUID();
 
@@ -208,8 +311,6 @@ export class SharedStateServer {
 
       res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
     });
-
-    // ── Health ──
 
     this.app.get("/health", (_req: Request, res: Response) => {
       res.json({
@@ -230,7 +331,7 @@ export class SharedStateServer {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Client (used by every terminal)
+// Client
 // ─────────────────────────────────────────────────────────────────
 
 export class SharedStateClient {
@@ -274,44 +375,91 @@ export class SharedStateClient {
     return r.json() as Promise<AgentCard[]>;
   }
 
+  // ── JSON-RPC call helper ────────────────────────────────────────
+
+  private async rpcCall<T = unknown>(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<T> {
+    const r = await fetch(`${this.baseUrl}/rpc`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "A2A-Version": "1.0",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method,
+        params,
+        id: crypto.randomUUID(),
+      }),
+    });
+    if (!r.ok) throw new Error(`JSON-RPC call failed: ${r.statusText}`);
+
+    const resp = (await r.json()) as { jsonrpc: string; result?: T; error?: { code: number; message: string } };
+    if (resp.error) throw new Error(`JSON-RPC error: ${resp.error.message} (${resp.error.code})`);
+    return resp.result as T;
+  }
+
+  // ── Task Operations (JSON-RPC 2.0) ──────────────────────────────
+
   async createTask(params: {
     from: string;
     to?: string;
     skill?: string;
     task: string;
   }): Promise<string> {
-    const r = await fetch(`${this.baseUrl}/tasks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    if (!r.ok) throw new Error(`Create task failed: ${r.statusText}`);
-    const { taskId } = (await r.json()) as { taskId: string };
+    const { taskId } = (await this.rpcCall<{ taskId: string; task: StoredTask }>(
+      "tasks/sendMessage",
+      {
+        task: params.task,
+        to: params.to,
+        skill: params.skill,
+        agentName: params.from,
+      }
+    ));
     return taskId;
   }
 
   async getTask(taskId: string): Promise<StoredTask> {
-    const r = await fetch(`${this.baseUrl}/tasks/${taskId}`);
-    if (!r.ok) throw new Error(`Get task failed: ${r.statusText}`);
-    return r.json() as Promise<StoredTask>;
+    const { task } = (await this.rpcCall<{ task: StoredTask | null }>(
+      "tasks/getTask",
+      { taskId }
+    ));
+    if (!task) throw new Error(`Task '${taskId}' not found`);
+    return task;
+  }
+
+  async cancelTask(taskId: string): Promise<StoredTask | null> {
+    const { task } = (await this.rpcCall<{ task: StoredTask | null }>(
+      "tasks/cancelTask",
+      { taskId }
+    ));
+    return task;
+  }
+
+  async listTasks(agentName?: string): Promise<StoredTask[]> {
+    const { tasks } = (await this.rpcCall<{ tasks: StoredTask[] }>(
+      "tasks/listTasks",
+      { agentName: agentName || "" }
+    ));
+    return tasks;
   }
 
   async postResult(taskId: string, result: unknown): Promise<void> {
-    const r = await fetch(`${this.baseUrl}/tasks/${taskId}/result`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: "TASK_STATE_COMPLETED", result }),
+    await this.rpcCall("tasks/resolveTask", {
+      taskId,
+      state: "TASK_STATE_COMPLETED",
+      result,
     });
-    if (!r.ok) throw new Error(`Post result failed: ${r.statusText}`);
   }
 
   async postError(taskId: string, error: string): Promise<void> {
-    const r = await fetch(`${this.baseUrl}/tasks/${taskId}/result`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: "TASK_STATE_FAILED", error }),
+    await this.rpcCall("tasks/resolveTask", {
+      taskId,
+      state: "TASK_STATE_FAILED",
+      error,
     });
-    if (!r.ok) throw new Error(`Post error failed: ${r.statusText}`);
   }
 
   subscribe(handler: (event: string, data: unknown) => void): () => void {
