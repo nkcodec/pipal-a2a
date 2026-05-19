@@ -419,7 +419,7 @@ export default function (pi: ExtensionAPI) {
           }],
           metadata: {},
         };
-        targetCard = smart.select(task, others);
+        targetCard = smart.select(task, others, card.name);  // ← exclude self
         if (targetCard) {
           console.log(`[pipal-a2a] 🎯 Auto-routed to ${targetCard.name} (SmartRouter)`);
         }

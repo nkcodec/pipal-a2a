@@ -56,6 +56,14 @@ describe("SmartRouter — tag-based routing", () => {
     expect(result?.name).toBe("backend");
   });
 
+  it("excludes self: backend delegating → routes to frontend", () => {
+    const router = new SmartRouter();
+    const task = makeTask("Build a react UI");
+    // backend calling select — exclude itself → should route to frontend
+    const result = router.select(task, [frontend, backend, planner], "backend");
+    expect(result?.name).toBe("frontend");
+  });
+
   it("routes by tag: 'react' → frontend", () => {
     const router = new SmartRouter();
     const task = makeTask("Create a React component");

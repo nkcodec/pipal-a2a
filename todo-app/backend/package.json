@@ -1,19 +1,17 @@
 {
   "name": "todo-app-backend",
   "version": "1.0.0",
-  "description": "Node.js todo app backend API with SQLite storage",
-  "main": "server.js",
+  "description": "Node.js backend for Todo app with Express.js and SQLite",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
   },
+  "keywords": ["todo", "api", "express", "sqlite"],
+  "license": "MIT",
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "uuid": "^9.0.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "express": "^4.21.2"
   }
 }

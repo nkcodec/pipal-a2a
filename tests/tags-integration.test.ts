@@ -73,11 +73,12 @@ describe("SmartRouter — PIPAL_TAGS integration", () => {
     expect(result?.name).toBe("planner");
   });
 
-  it("routes full-stack task — 'node.js + react' matches backend first", () => {
+  it("routes full-stack task — backend delegating excludes itself → frontend", () => {
+    // backend delegates a full-stack task — should route to frontend, not itself
     const task = makeTask("Build a full-stack app with node.js backend and react frontend");
-    const result = router.select(task, agents as any);
-    // node.js matches first → backend
-    expect(result?.name).toBe("backend");
+    const result = router.select(task, agents as any, "backend");
+    // node.js matched first → but backend is excluded → skip → react matched → frontend
+    expect(result?.name).toBe("frontend");
   });
 
   it("handles compound terms: 'express.js'", () => {

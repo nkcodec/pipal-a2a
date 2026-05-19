@@ -129,21 +129,26 @@ export class SmartRouter implements RoutingStrategy {
   /**
    * Select best agent for a task by matching task text keywords
    * against each agent's declared skill.tags[].
+   * @param excludeSelf - agent name to exclude from candidates (the delegating agent)
    */
-  select(task: Task, candidates: AgentCard[]): AgentCard | undefined {
+  select(task: Task, candidates: AgentCard[], excludeSelf?: string): AgentCard | undefined {
     if (candidates.length === 0) return undefined;
+
+    const pool = excludeSelf
+      ? candidates.filter((a) => a.name !== excludeSelf)
+      : candidates;
 
     // Explicit hints from task metadata — highest priority
     const toHint = task.metadata?.["to"] as string | undefined;
     const skillHint = task.metadata?.["skill"] as string | undefined;
 
     if (toHint) {
-      const match = candidates.find((a) => a.name === toHint);
+      const match = pool.find((a) => a.name === toHint && a.name !== excludeSelf);
       if (match) return match;
     }
 
     if (skillHint) {
-      const match = candidates.find((a) =>
+      const match = pool.find((a) =>
         a.skills.some((s) => s.id === skillHint)
       );
       if (match) return match;
@@ -153,7 +158,7 @@ export class SmartRouter implements RoutingStrategy {
     const keywords = this.extractKeywords(task);
     if (keywords.length > 0) {
       for (const keyword of keywords) {
-        for (const agent of candidates) {
+        for (const agent of pool) {
           if (this.agentHasTag(agent, keyword)) {
             console.log(`[SmartRouter] Tag match: "${keyword}" → ${agent.name}`);
             return agent;
@@ -162,8 +167,8 @@ export class SmartRouter implements RoutingStrategy {
       }
     }
 
-    // Fallback: first available candidate
-    return candidates[0];
+    // Fallback: first available agent (excluding self)
+    return pool[0];
   }
 
   /**
