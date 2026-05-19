@@ -16,7 +16,7 @@ v0.1.3  ← multi-turn (contextId)
 v0.1.4  ← auth (API Key) ✅
 v0.1.5  ← agent card signing + well-known discovery
 v0.1.6  ← push notifications
-v0.1.7  ← Auto-Router (skill-based, no human delegation)
+v0.1.7  ← Auto-Router (tag-based, no human delegation) ✅
 v0.1.8  ← gRPC binding
 v0.1.9  ← OAuth2 + extended agent card
 v0.2.0  ← final polish, interop tests
@@ -267,9 +267,9 @@ Per karpathy-clean-code: routing is configuration, not core.
 - [ ] `DefaultTaskRouter` — current behavior (manual delegation) remains fallback
 - [ ] Agent decides when to escalate vs handle directly
 
-**Exit criteria:** User says "build a todo app", frontend agent auto-routes to backend + frontend without human telling it whom to delegate to.
+**Exit criteria:** User says "build a todo app", frontend agent auto-routes to backend + frontend without human telling it whom to delegate to. ✅ **SHIPPED**
 
-Per karpathy-clean-code: Core (Task lifecycle) stays frozen. Router is infrastructure. Config activates, not defines.
+Per karpathy-clean-code: Core (Task lifecycle) stays frozen. Router is infrastructure. Config activates, not defines. ✅ **SHIPPED**
 
 ---
 
