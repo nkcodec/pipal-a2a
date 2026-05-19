@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.1.2 shipped** — 42 commits on `master`. Streaming SSE + token-by-token streaming via SendStreamingMessage.
+> **v0.1.3 shipped** — 44 commits on `master`. Multi-turn via contextId + INPUT_REQUIRED.
 
 ---
 
@@ -133,17 +133,18 @@ Implement `SendStreamingMessage` (Google A2A spec §3.1.2).
 
 ---
 
-## v0.1.3 — Multi-Turn
+## v0.1.3 — Multi-Turn ✅
 
 Implement `contextId` for multi-turn conversations (Google A2A spec §3.4).
 
-- [ ] `contextId` on Task — links related messages in a conversation
-- [ ] Follow-up messages sent with same `contextId`
-- [ ] `TASK_STATE_INPUT_REQUIRED` — agent asks for clarification
-- [ ] Task history (`history[]`) populated across turns
-- [ ] Update extension to handle multi-turn delegated tasks
+- [x] `contextId` on Task — auto-assigned or explicit on create
+- [x] Follow-up messages via `sendFollowUp(taskId, message, {role, requireInput})`
+- [x] `TASK_STATE_INPUT_REQUIRED` — agent asks for clarification via `pipal_a2a_ask`
+- [x] Task history (`history[]`) populated across turns
+- [x] User response restores `TASK_STATE_WORKING` — task resumes
+- [x] Extension handles multi-turn: planner auto-responds, backend has ask tool
 
-**Exit criteria:** Agent A can ask Agent B a follow-up question mid-task.
+**Exit criteria:** Agent A can ask Agent B a follow-up question mid-task. ✅
 
 ---
 

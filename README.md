@@ -2,7 +2,7 @@
 
 **Each pi terminal IS an agent.** P2P multi-agent orchestration via Google A2A v1.0 — watch real pi sessions collaborate in real-time.
 
-> **v0.1.2 shipped** — 42 commits on `master`. Token-by-token streaming via SSE. JSON-RPC 2.0 at POST /rpc.
+> **v0.1.3 shipped** — 44 commits on `master`. Multi-turn via contextId. Token-by-token streaming. JSON-RPC 2.0.
 
 ## What is PiPal-A2A?
 
