@@ -570,28 +570,22 @@ export class SharedStateClient {
     };
   }
 
-  async waitForResult(
-    taskId: string,
-    options?: { timeout?: number }
-  ): Promise<StoredTask> {
+  async waitForResult(taskId: string, options?: { timeout?: number }): Promise<StoredTask> {
     const timeout = options?.timeout ?? 120_000;
-    const interval = 2_000;
-    const start = Date.now();
-
-    while (Date.now() - start < timeout) {
-      const task = await this.getTask(taskId);
-      if (
-        task.status.state === "TASK_STATE_COMPLETED" ||
-        task.status.state === "TASK_STATE_FAILED"
-      ) {
-        return task;
-      }
-      await new Promise((r) => setTimeout(r, interval));
-    }
-
-    throw new Error(`Task ${taskId} timed out after ${timeout}ms`);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Task ${taskId} timed out after ${timeout}ms`)), timeout);
+      let completed = false;
+      const unsub = this.subscribeToTask(taskId, (event, data) => {
+        if (completed) return;
+        if (event === "task_completed" || event === "task_failed") {
+          completed = true;
+          clearTimeout(timer);
+          unsub();
+          this.getTask(taskId).then(resolve).catch(reject);
+        }
+      });
+    });
   }
-}
 
   subscribeToTask(
     taskId: string,
@@ -629,3 +623,5 @@ export class SharedStateClient {
 
     return () => { controller.abort(); };
   }
+
+}
