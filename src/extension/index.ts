@@ -359,10 +359,11 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
     promptGuidelines: [
       "IMPORTANT: Always use pipal_a2a_delegate (not subagents) when delegating to another agent terminal.",
-      "Before delegating: read your own AgentCard (skills + tags). If you have matching skills, handle it yourself — do NOT delegate.",
+      "Before delegating: call pipal_a2a_agents() to find correct agent names. Then use to=<name>.",
+      "Before delegating: call pipal_a2a_my_card() to check your own skills. Handle it yourself if you have matching skills.",
       "Delegate ONLY when: (1) task requires skills you don't have, (2) task is too complex for one agent.",
-      "When delegating: use to= or skill= to target a specific agent. If unknown, omit both — SmartRouter will pick the right agent by tag.",
       "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
+      "If no agent name known: omit to= and skill= — SmartRouter will pick the right agent by tag.",
     ],
     parameters: Type.Object({
       task: Type.String({ description: "The task description to delegate" }),
@@ -548,7 +549,94 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ───────────────────────────────────────────────────────────────
-  // Command: /pipal-status
+  // Tool: pipal_a2a_agents
+  // ───────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "pipal_a2a_agents",
+    label: "List Online Agents",
+    description: "List all online agents in the P2P network with their skills and tags.",
+    promptSnippet: "List online agents",
+    promptGuidelines: [
+      "Use pipal_a2a_agents before pipal_a2a_delegate to find the correct agent name.",
+      "Check online agents before guessing names — wrong names cause delegation failures.",
+    ],
+    parameters: Type.Object({}),
+    async execute() {
+      if (!client || !card) {
+        return { content: [{ type: "text" as const, text: "Error: Agent network not started." }] };
+      }
+      try {
+        const agents = await client.listAgents();
+        const lines = agents.map((a) => {
+          const skills = a.skills.map((s) => s.id).join(", ");
+          const tags = a.skills.flatMap((s) => s.tags || []).join(", ");
+          return `- ${a.name}: [${skills}] tags:[${tags}]`;
+        });
+        return {
+          content: [{ type: "text" as const, text: `Online agents:\n${lines.join("\n")}` }],
+        };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Failed: ${e}` }] };
+      }
+    },
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Tool: pipal_a2a_my_card
+  // ───────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "pipal_a2a_my_card",
+    label: "Show My Agent Card",
+    description: "Show your own AgentCard — your name, skills, and tags.",
+    promptSnippet: "Show my agent card",
+    promptGuidelines: [
+      "Use pipal_a2a_my_card to check your own capabilities before deciding to delegate.",
+      "If your skills match the task, handle it yourself — do not delegate.",
+    ],
+    parameters: Type.Object({}),
+    async execute() {
+      if (!card) {
+        return { content: [{ type: "text" as const, text: "Error: Agent network not started." }] };
+      }
+      const skills = card.skills.map((s) => `${s.id} (tags:${s.tags?.join(",") || ""})`).join("\n  ");
+      return {
+        content: [{
+          type: "text" as const,
+          text: `My AgentCard:\n- name: ${card.name}\n- skills:\n  ${skills}`,
+        }],
+      };
+    },
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Tool: pipal_a2a_status
+  // ───────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "pipal_a2a_status",
+    label: "Check Network Status",
+    description: "Check the health of the P2P agent network.",
+    promptSnippet: "Check network status",
+    promptGuidelines: [
+      "Use pipal_a2a_status to verify the network is healthy before delegating.",
+    ],
+    parameters: Type.Object({}),
+    async execute() {
+      if (!client) {
+        return { content: [{ type: "text" as const, text: "Error: Agent network not started." }] };
+      }
+      try {
+        const agents = await client.listAgents();
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Network: ${agents.length} agent(s) online. Status: healthy`,
+          }],
+        };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Network error: ${e}` }] };
+      }
+    },
+  });
   // ───────────────────────────────────────────────────────────────
   pi.registerCommand("pipal-status", {
     description: "Show P2P agent network status (Google A2A)",
