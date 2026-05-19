@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.1.4 next** — 46 commits on `master`. Multi-turn via contextId. Streaming. JSON-RPC 2.0. Auth (API Key) in progress.
+> **v0.1.4 shipped** — 48 commits on `master`. API key auth on shared state server. Multi-turn. Streaming. JSON-RPC 2.0.
 
 ---
 
@@ -148,17 +148,17 @@ Implement `contextId` for multi-turn conversations (Google A2A spec §3.4).
 
 ---
 
-## v0.1.4 — Auth (API Key)
+## v0.1.4 — Auth (API Key) ✅
 
 Add authentication (Google A2A spec §7).
 
-- [ ] `APIKeySecurityScheme` in AgentCard
-- [ ] Shared state validates API key on registration
-- [ ] Per-agent API keys in config
-- [ ] `TASK_STATE_AUTH_REQUIRED` for unauthorized requests
-- [ ] `401` responses for missing/invalid keys
+- [x] `APIKeySecurityScheme` via `addApiKey(key)` on server
+- [x] Shared state validates API key on all routes (Bearer token)
+- [x] Per-agent API keys via `PIPAL_API_KEY` env var
+- [x] 401 responses for missing/invalid keys
+- [x] All routes protected: /agents, /register, /unregister, /rpc, /events, /tasks/:taskId/streams
 
-**Exit criteria:** Unregistered agents cannot join the network. API keys required.
+**Exit criteria:** Unregistered agents cannot join the network. API keys required. ✅
 
 ---
 

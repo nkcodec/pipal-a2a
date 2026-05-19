@@ -2,7 +2,7 @@
 
 **Each pi terminal IS an agent.** P2P multi-agent orchestration via Google A2A v1.0 — watch real pi sessions collaborate in real-time.
 
-> **v0.1.3 shipped** — 44 commits on `master`. Multi-turn via contextId. Token-by-token streaming. JSON-RPC 2.0.
+> **v0.1.4 shipped** — 48 commits on `master`. Multi-turn via contextId. Token-by-token streaming. JSON-RPC 2.0.
 
 ## What is PiPal-A2A?
 
@@ -68,11 +68,11 @@ We use the [Google A2A v1.0](https://github.com/google/A2A) data model for all a
 | **AgentInterface** | `url`, `protocolBinding`, `protocolVersion` | ✅ Full |
 | **Transport** | REST binding (spec §11) | ✅ Full |
 | **Agent Discovery** | Shared state rendezvous | ✅ Shipped |
-| **Auth** | None (localhost only) | ❌ v0.1.4 |
+| **Auth** | API Key (Bearer token) | ✅ v0.1.4 |
 | **JSON-RPC binding** | JSON-RPC 2.0 at POST /rpc (spec §9) | ✅ Full |
-| **Streaming** | `tasks/sendStreamingMessage` + SSE | ⏳ v0.1.2 |
+| **Streaming** | `tasks/sendStreamingMessage` + SSE | ✅ v0.1.2 |
 | **`/.well-known/agent-card.json`** | Shared state instead | ✅ Shipped |
-| **Multi-turn (`contextId`)** | Single task per delegation | ❌ v0.1.3 |
+| **Multi-turn (`contextId`)** | Single task per delegation | ✅ v0.1.3 |
 | **gRPC binding** | Not needed for v1 | ❌ v0.1.7 |
 
 ## Quick Start
