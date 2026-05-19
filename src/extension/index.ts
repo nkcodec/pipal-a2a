@@ -105,6 +105,7 @@ export default function (pi: ExtensionAPI) {
   // Track delegated tasks for result capture
   let currentDelegatedTaskId: string | null = null;
   let lastAssistantText = "";
+  let resultTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ───────────────────────────────────────────────────────────────
   // Lifecycle: session_start
@@ -168,93 +169,24 @@ export default function (pi: ExtensionAPI) {
   // ───────────────────────────────────────────────────────────────
   // Capture LLM responses for delegated tasks
   //
-  // Problem: pi.sendUserMessage() triggers agent_end for the CURRENT
-  // (idle) turn before the new turn starts. That spurious agent_end
-  // was clearing currentDelegatedTaskId before the real turn finished.
+  // Strategy: Quiescence timer.
+  // After each message_update with assistant content, start a 15s timer.
+  // If no new content arrives within 15s, post the result.
+  // Also post on agent_end if it fires (primary path when available).
   //
-  // Solution: Track whether we've seen assistant content for the
-  // delegated task. Only post and clear when we have actual content.
+  // Why not just agent_end?
+  //   - sendUserMessage() triggers a spurious agent_end for the idle turn
+  //   - The real agent_end may never fire if the turn hangs (auto-commit etc)
   // ───────────────────────────────────────────────────────────────
-  let hasSeenAssistantContent = false;
 
-  pi.on("message_update", (event: any) => {
-    try {
-      const msg = event?.message;
-      if (msg?.role === "assistant") {
-        const content = msg.content;
-        if (typeof content === "string" && content.length > 0) {
-          lastAssistantText = content;
-          if (currentDelegatedTaskId) {
-            hasSeenAssistantContent = true;
-            console.log(`[pipal-a2a] 🔵 streaming: ${content.length} chars`);
-          }
-        } else if (Array.isArray(content)) {
-          const texts = content
-            .filter((b: any) => b.type === "text" && b.text)
-            .map((b: any) => b.text);
-          if (texts.length > 0) {
-            lastAssistantText = texts.join("\n");
-            if (currentDelegatedTaskId) {
-              hasSeenAssistantContent = true;
-              console.log(`[pipal-a2a] 🔵 streaming (blocks): ${lastAssistantText.length} chars`);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error(`[pipal-a2a] message_update error:`, e);
-    }
-  });
+  async function postDelegatedResult(): Promise<void> {
+    if (!currentDelegatedTaskId || !client) return;
 
-  pi.on("agent_end", async (event: any) => {
-    const hasTask = !!currentDelegatedTaskId;
-    const msgCount = Array.isArray(event?.messages) ? event.messages.length : 0;
-    console.log(
-      `[pipal-a2a] 🟢 agent_end. task=${currentDelegatedTaskId?.slice(0, 8) ?? "none"}, ` +
-      `hasContent=${hasSeenAssistantContent}, eventKeys=${Object.keys(event || {}).join(",")}`
-    );
-
-    // Skip if no delegated task, OR if this is a spurious agent_end
-    // from sendUserMessage() that fired before the real LLM turn.
-    if (!currentDelegatedTaskId || !client) {
-      console.log(`[pipal-a2a]    skip — no pending task`);
-      return;
-    }
-
-    // If we haven't seen any assistant content yet, this is the
-    // spurious agent_end from sendUserMessage(). Don't clear the task.
-    if (!hasSeenAssistantContent) {
-      console.log(`[pipal-a2a]    skip — spurious agent_end (no assistant content yet), keeping task`);
-      return;
-    }
-
-    // ── We have a real result. Post it. ──────────────────────────
     const taskId = currentDelegatedTaskId;
     currentDelegatedTaskId = null;
-    hasSeenAssistantContent = false;
+    if (resultTimer) { clearTimeout(resultTimer); resultTimer = null; }
 
-    // Try to extract from event.messages first
-    let resultText = "";
-    try {
-      const messages = event?.messages;
-      if (Array.isArray(messages) && messages.length > 0) {
-        const assistantMsgs = messages.filter((m: any) => m.role === "assistant");
-        const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
-        if (lastAssistant?.content) {
-          const c = lastAssistant.content;
-          resultText = typeof c === "string" ? c
-            : Array.isArray(c) ? c.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n")
-            : "";
-        }
-      }
-    } catch (e) {
-      console.error(`[pipal-a2a]    extract error:`, e);
-    }
-
-    // Fallback to streaming capture
-    if (!resultText) {
-      resultText = lastAssistantText || "Task completed";
-    }
+    const resultText = lastAssistantText || "Task completed";
     lastAssistantText = "";
 
     console.log(`[pipal-a2a] 📤 Posting result for ${taskId.slice(0, 8)} (${resultText.length} chars)`);
@@ -264,6 +196,53 @@ export default function (pi: ExtensionAPI) {
     } catch (error) {
       console.error(`[pipal-a2a] ❌ Failed to post result:`, error);
       try { await client.postError(taskId, String(error)); } catch {}
+    }
+  }
+
+  function resetQuiescenceTimer(): void {
+    if (resultTimer) clearTimeout(resultTimer);
+    resultTimer = setTimeout(() => {
+      console.log(`[pipal-a2a] ⏱️  Quiescence timer — 15s with no new content, posting result`);
+      resultTimer = null;
+      postDelegatedResult();
+    }, 15_000);
+  }
+
+  pi.on("message_update", (event: any) => {
+    try {
+      const msg = event?.message;
+      if (msg?.role !== "assistant" || !currentDelegatedTaskId) return;
+
+      const content = msg.content;
+      let captured = "";
+
+      if (typeof content === "string" && content.length > 0) {
+        captured = content;
+      } else if (Array.isArray(content)) {
+        captured = content
+          .filter((b: any) => b.type === "text" && b.text)
+          .map((b: any) => b.text)
+          .join("\n");
+      }
+
+      if (captured) {
+        lastAssistantText = captured;
+        console.log(`[pipal-a2a] 🔵 captured: ${captured.length} chars`);
+        resetQuiescenceTimer();
+      }
+    } catch (e) {
+      console.error(`[pipal-a2a] message_update error:`, e);
+    }
+  });
+
+  pi.on("agent_end", async (_event: any) => {
+    console.log(
+      `[pipal-a2a] 🟢 agent_end. task=${currentDelegatedTaskId?.slice(0, 8) ?? "none"}, ` +
+      `streaming=${lastAssistantText.length} chars`
+    );
+    // Post immediately if we have content — agent_end is the cleanest signal
+    if (currentDelegatedTaskId && lastAssistantText) {
+      await postDelegatedResult();
     }
   });
 
