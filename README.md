@@ -2,7 +2,7 @@
 
 **Each pi terminal IS an agent.** P2P multi-agent orchestration via Google A2A v1.0 — watch real pi sessions collaborate in real-time.
 
-> **v0.1.0 shipped** — 34 commits on `master`. Two terminals delegate real work and return results.
+> **v0.1.1 shipped** — 35 commits on `master`. Two terminals delegate real work and return results. JSON-RPC 2.0 binding.
 
 ## What is PiPal-A2A?
 
@@ -69,7 +69,7 @@ We use the [Google A2A v1.0](https://github.com/google/A2A) data model for all a
 | **Transport** | REST binding (spec §11) | ✅ Full |
 | **Agent Discovery** | Shared state rendezvous | ✅ Shipped |
 | **Auth** | None (localhost only) | ❌ v0.1.4 |
-| **JSON-RPC binding** | REST (spec §11 allows for v1) | ✅ Shipped |
+| **JSON-RPC binding** | JSON-RPC 2.0 at POST /rpc (spec §9) | ✅ Full |
 | **`/.well-known/agent-card.json`** | Shared state instead | ✅ Shipped |
 | **Multi-turn (`contextId`)** | Single task per delegation | ❌ v0.1.3 |
 | **gRPC binding** | Not needed for v1 | ❌ v0.1.7 |

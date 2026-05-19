@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.1.0 shipped** — 34 commits on `master`. Two pi terminals delegate real work and return results.
+> **v0.1.1 shipped** — 35 commits on `master`. JSON-RPC 2.0 binding at POST /rpc.
 
 ---
 
@@ -10,7 +10,7 @@
 
 ```
 v0.1.0  ← current (core types + shared state + extension + tests)
-v0.1.1  ← next: JSON-RPC binding
+v0.1.1  ← shipped: JSON-RPC 2.0 at POST /rpc ✅
 v0.1.2  ← streaming (SendStreamingMessage)
 v0.1.3  ← multi-turn (contextId)
 v0.1.4  ← auth (API Key)
