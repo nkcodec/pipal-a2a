@@ -187,6 +187,41 @@ Environment variables always override the config file.
 - Application → imports SDK + Core + Builtin (never Infrastructure)
 - Extension → imports Application + Infrastructure (top-level wiring)
 
+## Decision Flow (per karpathy-clean-code)
+
+**LLM decides, router assists.** The LLM checks its own declared capabilities before delegating. SmartRouter is a fallback — called only when LLM can't decide.
+
+```
+User: "build a todo app with node.js backend and react frontend"
+  │
+  ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  LLM — reads its own AgentCard                                    │
+│                                                                   │
+│  My card: skills=[frontend-implementation], tags=[react,ui]      │
+│                                                                   │
+│  "react frontend" → I have matching skill → HANDLE IT          │
+│  "node.js backend" → I lack backend skill → DELEGATE            │
+└──────────────────────────────────────────────────────────────────┘
+                     │                          │
+              [Handle it]              [DELEGATE tool]
+                                        │
+                                        ▼
+                              ┌──────────────────────┐
+                              │  SmartRouter (fallback)│
+                              │  Tag match: node.js   │
+                              │  → routes to backend  │
+                              └──────────────────────┘
+```
+
+**Why this is clean:**
+- LLM uses its own declared capabilities (no guessing)
+- SmartRouter only called when LLM needs help — not always
+- No excludeSelf hack — LLM won't delegate to itself
+- Tags are semantic: `node.js` → backend, `react` → frontend
+
+**Per karpathy-clean-code:** Router is infrastructure, not the decision-maker. The LLM is the decision-maker.
+
 ## File Structure
 
 ```
