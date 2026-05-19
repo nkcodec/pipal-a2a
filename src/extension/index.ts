@@ -165,10 +165,12 @@ export default function (pi: ExtensionAPI) {
   // Capture LLM responses for delegated tasks
   // ───────────────────────────────────────────────────────────────
   pi.on("message_update", (event: any) => {
-    if (event?.content) {
-      lastAssistantText = typeof event.content === "string"
-        ? event.content
-        : JSON.stringify(event.content);
+    // Pi docs: message_update provides event.message with role + content
+    const msg = event?.message;
+    if (msg?.role === "assistant" && msg?.content) {
+      lastAssistantText = typeof msg.content === "string"
+        ? msg.content
+        : JSON.stringify(msg.content);
     }
   });
 
@@ -253,14 +255,18 @@ export default function (pi: ExtensionAPI) {
     name: "pipal_a2a_delegate",
     label: "Delegate to Agent (A2A)",
     description:
-      "Send a task to another agent in the P2P network using Google A2A protocol. " +
-      "Routes to the best agent based on skills. Waits for the result.",
-    promptSnippet: "Delegate subtasks to specialized agents for parallel execution",
+      "Send a task to another agent terminal in the P2P agent network. " +
+      "IMPORTANT: This is the ONLY way to delegate work to other pi terminals. " +
+      "Use this tool instead of subagents when you want to send work to another terminal. " +
+      "The other agent's LLM will process the task in its own terminal (the user can see it working). " +
+      "Waits up to 2 minutes for the result.",
+    promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
     promptGuidelines: [
-      "Use pipal_a2a_delegate when a task benefits from a specialized agent.",
-      "Specify skill to route by skill: planning, code-generation, security-review, etc.",
-      "Specify to to send directly to a named agent.",
-      "You can call this tool multiple times for parallel work.",
+      "IMPORTANT: Always use pipal_a2a_delegate (not subagents) when delegating to another agent terminal.",
+      "Use pipal_a2a_delegate when the user wants to send work to another terminal/agent.",
+      "Specify skill to route to the right agent: planning, code-generation, security-review, frontend-implementation, backend-implementation.",
+      "Specify to to send directly to a named agent (e.g. to='backend').",
+      "You can call pipal_a2a_delegate multiple times for parallel work across terminals.",
     ],
     parameters: Type.Object({
       task: Type.String({ description: "The task description to delegate" }),
