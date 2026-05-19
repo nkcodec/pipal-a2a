@@ -157,7 +157,7 @@ Environment variables always override the config file.
                          ▲
 ┌─────────────────────────────────────────────────────────┐
 │  BUILTIN — Default Implementations                       │
-│  SkillMatcher — routes tasks by AgentSkill matching      │
+│  SmartRouter — routes by tag matching, LLM decides first │
 └─────────────────────────────────────────────────────────┘
                          ▲
 ┌─────────────────────────────────────────────────────────┐

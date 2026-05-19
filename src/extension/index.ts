@@ -359,10 +359,10 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
     promptGuidelines: [
       "IMPORTANT: Always use pipal_a2a_delegate (not subagents) when delegating to another agent terminal.",
-      "Use pipal_a2a_delegate when task keywords match other agents' skills (e.g., 'node.js' → backend, 'react' → frontend).",
-      "Delegate to specialists — do NOT handle implementation tasks yourself unless the task is trivial.",
-      "When in doubt: delegate. Specialists do better work than generalists.",
-      "You can call pipal_a2a_delegate multiple times for parallel work across terminals.",
+      "Before delegating: read your own AgentCard (skills + tags). If you have matching skills, handle it yourself — do NOT delegate.",
+      "Delegate ONLY when: (1) task requires skills you don't have, (2) task is too complex for one agent.",
+      "When delegating: use to= or skill= to target a specific agent. If unknown, omit both — SmartRouter will pick the right agent by tag.",
+      "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
     ],
     parameters: Type.Object({
       task: Type.String({ description: "The task description to delegate" }),
