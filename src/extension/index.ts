@@ -161,7 +161,12 @@ export default function (pi: ExtensionAPI) {
     const skillList = card.skills.length > 0
       ? card.skills.map((s) => s.id).join(", ")
       : "none";
-    console.log(`[pipal-a2a] ✅ Online as "${card.name}" [${skillList}]`);
+    const tagList = config.identity.tags.length > 0
+      ? config.identity.tags.join(", ")
+      : "none";
+    console.log(`[pipal-a2a] ✅ Online as "${card.name}" [${skillList}] tags:[${tagList}]`);
+    console.log(`[pipal-a2a] pipal_a2a tools: agents() | my_card() | delegate() | status()`);
+    console.log(`[pipal-a2a] Check agents() + my_card() BEFORE delegating.`);
   });
 
   // ───────────────────────────────────────────────────────────────
