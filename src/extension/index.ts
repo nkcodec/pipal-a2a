@@ -45,6 +45,7 @@ interface ExtensionConfig {
     name: string;
     description?: string;
     skills: string[];
+    tags: string[];
   };
   apiKey?: string;
 }
@@ -55,6 +56,7 @@ function loadConfig(): ExtensionConfig {
     identity: {
       name: `agent-${Math.random().toString(36).slice(2, 8)}`,
       skills: [],
+      tags: [],
     },
   };
 
@@ -78,6 +80,12 @@ function loadConfig(): ExtensionConfig {
   if (process.env.PIPAL_NAME) config.identity.name = process.env.PIPAL_NAME;
   if (process.env.PIPAL_SKILLS) {
     config.identity.skills = process.env.PIPAL_SKILLS
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (process.env.PIPAL_TAGS) {
+    config.identity.tags = process.env.PIPAL_TAGS
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
@@ -133,7 +141,7 @@ export default function (pi: ExtensionAPI) {
 
     // Build Google A2A v1.0 AgentCard
     const skills: AgentSkill[] = config.identity.skills.map((s) =>
-      createSkill(s, s, `Skill: ${s}`)
+      createSkill(s, s, `Skill: ${s}`, { tags: config.identity.tags })
     );
 
     card = createAgentCard(

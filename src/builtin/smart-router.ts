@@ -201,7 +201,7 @@ export class SmartRouter implements RoutingStrategy {
     const keywords: string[] = [];
 
     // First pass: look for compound terms (e.g., "node.js", "rest api")
-    const compound = text.toLowerCase().match(/(node\.js|express\.js|rest.api|graphql|postgresql|mongodb|react\.js|vue\.js|next\.js|tailwind\.css|typescript|python|django|flask|golang|rust|docker|kubernetes|jwt|oauth)/g);
+    const compound = text.toLowerCase().match(/(node\.js|express\.js|rest\.api|graphql|postgresql|mongodb|react\.js|vue\.js|next\.js|tailwindcss?|typescript|python|django|flask|golang|rust|docker|kubernetes|jwt|oauth)/g);
 
     if (compound) {
       for (const c of compound) {
@@ -230,16 +230,12 @@ export class SmartRouter implements RoutingStrategy {
     const kw = keyword.toLowerCase();
 
     for (const skill of agent.skills) {
-      // Check skill.tags (explicit keywords)
-      if (skill.tags?.some((tag) => tag.toLowerCase().includes(kw))) {
-        return true;
-      }
-      // Check skill.id partial match
-      if (skill.id.toLowerCase().includes(kw)) {
+      // Check skill.tags (explicit keywords) — most specific match
+      if (skill.tags?.some((tag) => tag.toLowerCase() === kw || tag.toLowerCase().includes(kw) || kw.includes(tag.toLowerCase()))) {
         return true;
       }
       // Check skill.name partial match
-      if (skill.name?.toLowerCase().includes(kw)) {
+      if (skill.name?.toLowerCase().includes(kw) && kw.length > 3) {
         return true;
       }
     }
