@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.1.2 next** — 38 commits on `master`. JSON-RPC 2.0 at POST /rpc shipped. Streaming in progress.
+> **v0.1.2 next** — 40 commits on `master`. Streaming SSE infrastructure shipped.
 
 ---
 
@@ -121,11 +121,13 @@ Align transport with Google A2A spec §9 (JSON-RPC 2.0).
 
 Implement `SendStreamingMessage` (Google A2A spec §3.1.2).
 
-- [ ] `SendStreamingMessage` — SSE streaming response
+- [x] `subscribeToTask(taskId, onEvent)` — SSE client, returns unsubscribe fn
+- [x] `GET /tasks/:taskId/streams` — per-task SSE endpoint with catch-up
+- [x] `waitForResult(taskId)` — SSE-driven, no polling (catch-up + live events)
 - [ ] `TaskStatusUpdateEvent` — stream state transitions
 - [ ] `TaskArtifactUpdateEvent` — stream artifacts as they're generated
-- [ ] LLM response streamed token-by-token back to delegating agent
-- [ ] Update extension to consume streaming events
+- [ ] LLM response streamed token-by-token via SSE (SendStreamingMessage)
+- [ ] Extension consumes streaming events and renders incrementally
 
 **Exit criteria:** Delegated task results stream back in real-time, not polled.
 
