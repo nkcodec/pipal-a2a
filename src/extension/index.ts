@@ -209,23 +209,80 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("message_update", (event: any) => {
-    try {
+    // ── RAW DIAGNOSTIC: log every event when we have a delegated task ──
+    if (currentDelegatedTaskId) {
+      const keys = Object.keys(event || {});
       const msg = event?.message;
-      if (msg?.role !== "assistant" || !currentDelegatedTaskId) return;
+      const msgKeys = msg ? Object.keys(msg) : [];
+      const role = msg?.role;
+      const contentType = typeof msg?.content;
+      const contentPreview = typeof msg?.content === "string"
+        ? msg.content.slice(0, 80)
+        : Array.isArray(msg?.content)
+          ? "array:" + msg.content.length
+          : typeof msg?.content;
+      console.log(
+        `[pipal-a2a] 📨 message_update. keys=[${keys}] msg.keys=[${msgKeys}] ` +
+        `role=${role} content=${contentType}(${contentPreview})`
+      );
+      // Also log non-message events that might carry content
+      if (!msg && event?.content) {
+        console.log(
+          `[pipal-a2a] 📨 direct content: type=${typeof event.content} ` +
+          `preview=${String(event.content).slice(0, 80)}`
+        );
+      }
+      if (!msg && event?.text) {
+        console.log(
+          `[pipal-a2a] 📨 direct text: ${String(event.text).slice(0, 80)}`
+        );
+      }
+    }
 
-      const content = msg.content;
+    try {
+      // Try multiple event shapes
       let captured = "";
 
-      if (typeof content === "string" && content.length > 0) {
-        captured = content;
-      } else if (Array.isArray(content)) {
-        captured = content
-          .filter((b: any) => b.type === "text" && b.text)
-          .map((b: any) => b.text)
-          .join("\n");
+      // Shape 1: event.message.role === "assistant", content = string
+      const msg = event?.message;
+      if (msg?.role === "assistant" && msg?.content) {
+        if (typeof msg.content === "string") captured = msg.content;
+        else if (Array.isArray(msg.content)) {
+          captured = msg.content
+            .filter((b: any) => b.type === "text" && b.text)
+            .map((b: any) => b.text)
+            .join("\n");
+        }
       }
 
-      if (captured) {
+      // Shape 2: event.message without role, or role !== "assistant"
+      if (!captured && msg?.content && currentDelegatedTaskId) {
+        if (typeof msg.content === "string" && msg.content.length > 0) captured = msg.content;
+        else if (Array.isArray(msg.content)) {
+          captured = msg.content
+            .filter((b: any) => b.type === "text" && b.text)
+            .map((b: any) => b.text)
+            .join("\n");
+        }
+      }
+
+      // Shape 3: event.content directly (no message wrapper)
+      if (!captured && event?.content && !msg) {
+        if (typeof event.content === "string") captured = event.content;
+        else if (Array.isArray(event.content)) {
+          captured = event.content
+            .filter((b: any) => b.type === "text" && b.text)
+            .map((b: any) => b.text)
+            .join("\n");
+        }
+      }
+
+      // Shape 4: event.text directly
+      if (!captured && event?.text && typeof event.text === "string") {
+        captured = event.text;
+      }
+
+      if (captured && currentDelegatedTaskId) {
         lastAssistantText = captured;
         console.log(`[pipal-a2a] 🔵 captured: ${captured.length} chars`);
         resetQuiescenceTimer();
