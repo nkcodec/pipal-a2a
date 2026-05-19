@@ -284,6 +284,35 @@ Per karpathy-clean-code: Core (Task lifecycle) stays frozen. Router is infrastru
 
 ---
 
+## Future Ideas (post v0.2.x)
+
+### pi-file-guard — Role-based file write restriction
+
+Separate extension. NOT part of pipal-a2a (different job).
+
+Per karpathy-clean-code: prompts > code. Only build if guidelines fail.
+
+```yaml
+# config/roles.yaml
+planner:
+  allowWrite: ["*.md", "*.txt", "*.yaml"]  # only specs and plans
+  blockWrite: ["*.js", "*.ts", "*.jsx", "*.py"]  # no implementation
+
+backend:
+  allowWrite: ["*"]  # unrestricted
+
+frontend:
+  allowWrite: ["*"]  # unrestricted
+```
+
+Implementation:
+- Hooks into `pi.on("tool_call", ...)` — blocks write/edit for restricted roles
+- Reads `config/roles.yaml` for per-role file patterns
+- Separate `pi-file-guard` extension (not pipal-a2a)
+- Triggered only if promptGuidelines can't prevent planner from writing code
+
+---
+
 ## Success Criteria
 
 1. **Spec compliant:** Google A2A v1.0 data model used throughout
