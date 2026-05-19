@@ -166,6 +166,11 @@ export default function (pi: ExtensionAPI) {
   // Strategy: capture streaming text from message_update,
   // then use agent_end event.messages as the authoritative source.
   // ───────────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────────────────────
+  // Capture LLM responses for delegated tasks
+  // Strategy: capture streaming text from message_update,
+  // then use agent_end event.messages as the authoritative source.
+  // ───────────────────────────────────────────────────────────────
   pi.on("message_update", (event: any) => {
     // Pi docs: message_update fires during assistant streaming
     // event.message has { role, content } where content can be string or array
@@ -175,34 +180,51 @@ export default function (pi: ExtensionAPI) {
         const content = msg.content;
         if (typeof content === "string" && content.length > 0) {
           lastAssistantText = content;
+          if (currentDelegatedTaskId) {
+            console.log(`[pipal-a2a] 🔵 streaming capture: ${content.length} chars`);
+          }
         } else if (Array.isArray(content)) {
-          // Content blocks: [{ type: "text", text: "..." }, ...]
           const texts = content
             .filter((b: any) => b.type === "text" && b.text)
             .map((b: any) => b.text);
           if (texts.length > 0) {
             lastAssistantText = texts.join("\n");
+            if (currentDelegatedTaskId) {
+              console.log(`[pipal-a2a] 🔵 streaming capture (blocks): ${lastAssistantText.length} chars`);
+            }
           }
         }
       }
-    } catch {
-      // Non-critical — streaming updates are best-effort
+    } catch (e) {
+      console.error(`[pipal-a2a] message_update error:`, e);
     }
   });
 
   pi.on("agent_end", async (event: any) => {
-    if (!currentDelegatedTaskId || !client) return;
+    // ALWAYS log agent_end for diagnostics
+    console.log(`[pipal-a2a] 🟢 agent_end fired. delegatedTask=${currentDelegatedTaskId?.slice(0, 8) ?? "none"}`);
+    console.log(`[pipal-a2a]    event keys: ${Object.keys(event || {}).join(", ")}`);
+    console.log(`[pipal-a2a]    event.messages: ${Array.isArray(event?.messages) ? event.messages.length + " items" : typeof event?.messages}`);
+
+    if (!currentDelegatedTaskId || !client) {
+      console.log(`[pipal-a2a]    skipping — no delegated task`);
+      return;
+    }
 
     const taskId = currentDelegatedTaskId;
     currentDelegatedTaskId = null;
 
     // Pi docs: agent_end provides event.messages — all messages from this prompt
-    // Use this as the authoritative source, falling back to streaming capture
     let resultText = "";
 
     try {
       const messages = event?.messages;
       if (Array.isArray(messages) && messages.length > 0) {
+        console.log(`[pipal-a2a]    scanning ${messages.length} messages for assistant content...`);
+        for (const m of messages) {
+          console.log(`[pipal-a2a]      msg role=${m.role} content=${typeof m.content} ${(typeof m.content === "string" ? m.content.length : Array.isArray(m.content) ? "array:" + m.content.length : "?")} chars`);
+        }
+
         // Find the last assistant message
         const assistantMsgs = messages.filter(
           (m: any) => m.role === "assistant"
@@ -220,14 +242,18 @@ export default function (pi: ExtensionAPI) {
               .join("\n");
           }
         }
+        console.log(`[pipal-a2a]    extracted from agent_end: ${resultText.length} chars`);
+      } else {
+        console.log(`[pipal-a2a]    no messages array in event, falling back to streaming`);
       }
-    } catch {
-      // Fall through to streaming capture
+    } catch (e) {
+      console.error(`[pipal-a2a]    agent_end extract error:`, e);
     }
 
-    // Fallback to streaming capture if agent_end didn't have messages
+    // Fallback to streaming capture
     if (!resultText) {
       resultText = lastAssistantText || "Task completed";
+      console.log(`[pipal-a2a]    using streaming fallback: ${resultText.length} chars`);
     }
     lastAssistantText = "";
 
