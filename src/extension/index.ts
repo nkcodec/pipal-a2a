@@ -33,6 +33,7 @@ import {
 import { SharedStateServer, SharedStateClient, type StoredTask } from "../infrastructure/shared-state.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
 import { DefaultTaskRouter } from "../application/router.js";
+import { SmartRouter } from "../builtin/smart-router.js";
 
 // ─────────────────────────────────────────────────────────────────
 // Config
@@ -396,6 +397,25 @@ export default function (pi: ExtensionAPI) {
           );
           if (matches.length > 0) targetCard = matches[0];
         }
+
+      // Auto-route: no explicit to or skill → use SmartRouter
+      if (!targetCard && !params.to && !params.skill) {
+        const smart = new SmartRouter();
+        const task = {
+          id: "preview",
+          status: { state: "TASK_STATE_SUBMITTED" as any, timestamp: new Date().toISOString() },
+          history: [{
+            messageId: "preview",
+            role: "ROLE_USER" as any,
+            parts: [{ text: params.task }],
+          }],
+          metadata: {},
+        };
+        targetCard = smart.select(task, others);
+        if (targetCard) {
+          console.log(`[pipal-a2a] 🎯 Auto-routed to ${targetCard.name} (SmartRouter)`);
+        }
+      }
 
         // Fallback — pick first available other agent
         if (!targetCard && others.length > 0) {
