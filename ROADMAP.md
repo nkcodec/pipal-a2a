@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.1.3 shipped** — 44 commits on `master`. Multi-turn via contextId + INPUT_REQUIRED.
+> **v0.1.4 next** — 46 commits on `master`. Multi-turn via contextId. Streaming. JSON-RPC 2.0. Auth (API Key) in progress.
 
 ---
 
@@ -248,6 +248,7 @@ This IS the "v1.0" milestone. We can honestly say:
 - [ ] Multi-turn with contextId
 - [ ] Streaming with SSE events
 - [ ] Push notifications via webhook
+- [ ] **MemPalace integration** — agents store completed task artifacts in MemPalace for cross-session memory. Agents can query MemPalace via MCP for context before handling tasks.
 - [ ] Full spec compliance test suite passing
 - [ ] Interop verified with reference implementation
 - [ ] npm publish as `pipal-a2a`
