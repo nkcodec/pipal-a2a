@@ -574,7 +574,7 @@ export default function (pi: ExtensionAPI) {
         const agents = await client.listAgents();
         const lines = agents.map((a) => {
           const skills = a.skills.map((s) => s.id).join(", ");
-          const tags = a.skills.flatMap((s) => s.tags || []).join(", ");
+          const tags = [...new Set(a.skills.flatMap((s) => s.tags || []))].join(", ");
           return `- ${a.name}: [${skills}] tags:[${tags}]`;
         });
         return {

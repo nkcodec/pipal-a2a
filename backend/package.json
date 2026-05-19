@@ -1,13 +1,12 @@
 {
-  "name": "todo-api",
+  "name": "todo-backend",
   "version": "1.0.0",
-  "description": "Simple in-memory REST API for todo management",
+  "description": "Node.js/Express backend for Todo app",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.18.2"
   }
 }
