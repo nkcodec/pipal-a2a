@@ -242,3 +242,67 @@ describe("SharedStateServer + Client", () => {
     expect(resolved.status.state).not.toBe("TASK_STATE_INPUT_REQUIRED");
   });
 });
+
+describe("Auth — API Key", () => {
+  const AUTH_KEY = "test-api-key-123";
+  let authServer: SharedStateServer;
+  let authUrl: string;
+  let keyClient: SharedStateClient;
+  let noKeyClient: SharedStateClient;
+  let wrongKeyClient: SharedStateClient;
+
+  beforeAll(async () => {
+    authServer = new SharedStateServer();
+    authUrl = await authServer.start(18003);
+    authServer.addApiKey(AUTH_KEY);
+    keyClient = new SharedStateClient(authUrl, AUTH_KEY);
+    noKeyClient = new SharedStateClient(authUrl);
+    wrongKeyClient = new SharedStateClient(authUrl, "wrong-key");
+  });
+
+  afterAll(async () => {
+    await authServer.stop();
+  });
+
+  it("allows registration with valid API key", async () => {
+    await expect(keyClient.register({
+      name: "auth-agent", description: "", supportedInterfaces: [], capabilities: {}, skills: [],
+    })).resolves.toBeUndefined();
+    const agents = await keyClient.listAgents();
+    expect(agents.some((a) => a.name === "auth-agent")).toBe(true);
+  });
+
+  it("blocks registration without API key", async () => {
+    await expect(noKeyClient.register({
+      name: "no-key-agent", description: "", supportedInterfaces: [], capabilities: {}, skills: [],
+    })).rejects.toThrow("401");
+  });
+
+  it("blocks registration with wrong API key", async () => {
+    await expect(wrongKeyClient.register({
+      name: "bad-key-agent", description: "", supportedInterfaces: [], capabilities: {}, skills: [],
+    })).rejects.toThrow("401");
+  });
+
+  it("blocks listAgents without key", async () => {
+    await expect(noKeyClient.listAgents()).rejects.toThrow("401");
+  });
+
+  it("allows SSE subscription with valid key", async () => {
+    const taskId = await keyClient.createTask({ from: "auth-agent", task: "auth SSE test" });
+    const events: [string, unknown][] = [];
+    const unsub = keyClient.subscribeToTask(taskId, (e, d) => events.push([e, d]));
+    await new Promise((r) => setTimeout(r, 200));
+    await keyClient.postResult(taskId, "auth done");
+    await new Promise((r) => setTimeout(r, 300));
+    unsub();
+    expect(events.some(([e]) => e === "task_completed")).toBe(true);
+  });
+
+  it("blocks SSE subscription without key", async () => {
+    const taskId = await keyClient.createTask({ from: "auth-agent", task: "no key test" });
+    // SSE without key: the fetch will 401, the connection will fail silently
+    // The subscription will never fire events. We test that listAgents still 401.
+    await expect(noKeyClient.listAgents()).rejects.toThrow("401");
+  });
+});

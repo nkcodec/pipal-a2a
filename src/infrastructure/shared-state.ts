@@ -65,6 +65,7 @@ export class SharedStateServer {
   private tasks = new Map<string, StoredTask>();
   private sseClients = new Map<string, Response>();
   private taskStreams = new Map<string, { res: Response; taskId: string }>();
+  private validApiKeys = new Set<string>();
 
   // JSON-RPC dispatcher for task methods
   private rpc = new JsonRpcDispatcher();
@@ -85,6 +86,33 @@ export class SharedStateServer {
     });
   }
 
+  /**
+   * Add an API key to the allowed list. Must be called before the server starts.
+   * When keys are present, all incoming requests must include a valid key.
+   */
+  addApiKey(key: string): void {
+    this.validApiKeys.add(key);
+  }
+
+  /**
+   * Returns true if API key auth is enabled (at least one key registered).
+   */
+  get authEnabled(): boolean {
+    return this.validApiKeys.size > 0;
+  }
+
+  private authMiddleware = (req: any, res: Response, next: () => void): void => {
+    // No keys configured → allow all
+    if (this.validApiKeys.size === 0) { next(); return; }
+
+    const key = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (!key || !this.validApiKeys.has(key)) {
+      res.status(401).json({ error: "Unauthorized: valid API key required" });
+      return;
+    }
+    next();
+  };
+
   async stop(): Promise<void> {
     for (const { res } of this.sseClients.values()) res.end();
     this.sseClients.clear();
@@ -98,19 +126,19 @@ export class SharedStateServer {
   // ── Agent Routes (REST — P2P extension) ─────────────────────────
 
   private setupAgentRoutes(): void {
-    this.app.get("/agents/:name", (req: Request, res: Response) => {
+    this.app.get("/agents/:name", this.authMiddleware, (req: Request, res: Response) => {
       const card = this.agents.get(req.params.name);
       if (!card) return res.status(404).json({ error: "Agent not found" });
       res.setHeader("A2A-Version", "1.0");
       res.json(card);
     });
 
-    this.app.get("/agents", (_req: Request, res: Response) => {
+    this.app.get("/agents", this.authMiddleware, (_req: Request, res: Response) => {
       res.setHeader("A2A-Version", "1.0");
       res.json(Array.from(this.agents.values()));
     });
 
-    this.app.post("/register", (req: Request, res: Response) => {
+    this.app.post("/register", this.authMiddleware, (req: Request, res: Response) => {
       const card = req.body as AgentCard;
       if (!card?.name) {
         res.status(400).json({ error: "AgentCard requires name" });
@@ -122,7 +150,7 @@ export class SharedStateServer {
       res.json({ ok: true, agentId: card.name });
     });
 
-    this.app.post("/unregister", (req: Request, res: Response) => {
+    this.app.post("/unregister", this.authMiddleware, (req: Request, res: Response) => {
       const { agentId } = req.body;
       if (agentId) {
         this.agents.delete(agentId);
@@ -357,7 +385,7 @@ export class SharedStateServer {
 
     // ── JSON-RPC POST /rpc endpoint ────────────────────────────────
 
-    this.app.post("/rpc", async (req: Request, res: Response) => {
+    this.app.post("/rpc", this.authMiddleware, async (req: Request, res: Response) => {
       res.setHeader("A2A-Version", "1.0");
       res.setHeader("Content-Type", "application/json");
 
@@ -383,7 +411,7 @@ export class SharedStateServer {
   // ── SSE Routes (unchanged — used for event subscription) ────────
 
   private setupSseRoutes(): void {
-    this.app.get("/events", (req: Request, res: Response) => {
+    this.app.get("/events", this.authMiddleware, (req: Request, res: Response) => {
       const clientId = (req.query.clientId as string) || crypto.randomUUID();
 
       res.setHeader("Content-Type", "text/event-stream");
@@ -404,7 +432,7 @@ export class SharedStateServer {
 
     // ── Streaming SSE for specific task (Google A2A: task subscription) ──
 
-    this.app.get("/tasks/:taskId/streams", (req: Request, res: Response) => {
+    this.app.get("/tasks/:taskId/streams", this.authMiddleware, (req: Request, res: Response) => {
       const taskId = req.params.taskId;
       const clientId = (req.query.clientId as string) || crypto.randomUUID();
 
@@ -483,9 +511,12 @@ data: ${payload}
 export class SharedStateClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, apiKey?: string) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    if (apiKey) this.apiKey = apiKey;
   }
+
+  private apiKey?: string;
 
   async isReachable(): Promise<boolean> {
     try {
@@ -499,25 +530,31 @@ export class SharedStateClient {
   }
 
   async register(card: AgentCard): Promise<void> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     const r = await fetch(`${this.baseUrl}/register`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(card),
     });
-    if (!r.ok) throw new Error(`Register failed: ${r.statusText}`);
+    if (!r.ok) throw new Error(`Register failed: ${r.status} ${r.statusText}`);
   }
 
   async unregister(agentId: string): Promise<void> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     await fetch(`${this.baseUrl}/unregister`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ agentId }),
     });
   }
 
   async listAgents(): Promise<AgentCard[]> {
-    const r = await fetch(`${this.baseUrl}/agents`);
-    if (!r.ok) throw new Error(`List agents failed: ${r.statusText}`);
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const r = await fetch(`${this.baseUrl}/agents`, { headers });
+    if (!r.ok) throw new Error(`List agents failed: ${r.status} ${r.statusText}`);
     return r.json() as Promise<AgentCard[]>;
   }
 
@@ -532,6 +569,7 @@ export class SharedStateClient {
       headers: {
         "Content-Type": "application/json",
         "A2A-Version": "1.0",
+        ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -543,7 +581,7 @@ export class SharedStateClient {
     if (!r.ok) throw new Error(`JSON-RPC call failed: ${r.statusText}`);
 
     const resp = (await r.json()) as { jsonrpc: string; result?: T; error?: { code: number; message: string } };
-    if (resp.error) throw new Error(`JSON-RPC error: ${resp.error.message} (${resp.error.code})`);
+    if (resp.error) throw new Error(`JSON-RPC error: ${resp.error.message} (${resp.error.code}) (${r.status})`);
     return resp.result as T;
   }
 
@@ -624,6 +662,11 @@ export class SharedStateClient {
     return task;
   }
 
+  private _authHeaders(): Record<string, string> {
+    if (!this.apiKey) return {};
+    return { Authorization: `Bearer ${this.apiKey}` };
+  }
+
   subscribe(handler: (event: string, data: unknown) => void): () => void {
     const controller = new AbortController();
     let closed = false;
@@ -632,7 +675,7 @@ export class SharedStateClient {
       try {
         const response = await fetch(
           `${this.baseUrl}/events?clientId=${crypto.randomUUID()}`,
-          { signal: controller.signal }
+          { headers: this._authHeaders(), signal: controller.signal }
         );
         if (!response.body) return;
 
@@ -702,7 +745,7 @@ export class SharedStateClient {
     const controller = new AbortController();
     let currentEvent = "message";
 
-    fetch(this.baseUrl + "/tasks/" + taskId + "/streams?clientId=" + crypto.randomUUID(), { signal: controller.signal })
+    fetch(this.baseUrl + "/tasks/" + taskId + "/streams?clientId=" + crypto.randomUUID(), { headers: this._authHeaders(), signal: controller.signal })
       .then((response) => {
         if (!response.ok || !response.body) return;
         const reader = response.body.getReader();

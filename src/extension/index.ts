@@ -45,6 +45,7 @@ interface ExtensionConfig {
     description?: string;
     skills: string[];
   };
+  apiKey?: string;
 }
 
 function loadConfig(): ExtensionConfig {
@@ -81,6 +82,7 @@ function loadConfig(): ExtensionConfig {
       .filter(Boolean);
   }
   if (process.env.PIPAL_DESCRIPTION) config.identity.description = process.env.PIPAL_DESCRIPTION;
+  if (process.env.PIPAL_API_KEY) config.apiKey = process.env.PIPAL_API_KEY;
   if (process.env.PIPAL_SHARED_STATE) config.sharedState = process.env.PIPAL_SHARED_STATE;
 
   return config;
@@ -113,12 +115,16 @@ export default function (pi: ExtensionAPI) {
     const sharedStateUrl = config.sharedState;
     const parsedPort = parseInt(new URL(sharedStateUrl).port || "5000");
 
-    client = new SharedStateClient(sharedStateUrl);
+    client = new SharedStateClient(sharedStateUrl, config.apiKey);
     const isHost = !(await client.isReachable());
 
     if (isHost) {
       server = new SharedStateServer();
       await server.start(parsedPort);
+      if (config.apiKey) {
+        server.addApiKey(config.apiKey);
+        console.log(`[pipal-a2a] 🔐 Auth enabled — API key required`);
+      }
       console.log(`[pipal-a2a] 🏠 HOST mode — shared state at ${sharedStateUrl}`);
     } else {
       console.log(`[pipal-a2a] 🔗 JOIN mode — connecting to ${sharedStateUrl}`);
