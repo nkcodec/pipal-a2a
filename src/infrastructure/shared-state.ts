@@ -64,6 +64,7 @@ export class SharedStateServer {
   private agents = new Map<string, AgentCard>();
   private tasks = new Map<string, StoredTask>();
   private sseClients = new Map<string, Response>();
+  private taskStreams = new Map<string, Response>();
 
   // JSON-RPC dispatcher for task methods
   private rpc = new JsonRpcDispatcher();
@@ -87,6 +88,8 @@ export class SharedStateServer {
   async stop(): Promise<void> {
     for (const res of this.sseClients.values()) res.end();
     this.sseClients.clear();
+    for (const res of this.taskStreams.values()) res.end();
+    this.taskStreams.clear();
     return new Promise((resolve, reject) => {
       this.server?.close((err) => (err ? reject(err) : resolve()));
     });
@@ -247,12 +250,21 @@ export class SharedStateServer {
 
       this.tasks.set(taskId, updated);
 
+      // Broadcast streaming events for task subscription
+      this.broadcastToTask(taskId, "task_update", {
+        status: updated.status,
+        artifacts: updated.artifacts,
+      });
+
       if (finalState === "TASK_STATE_COMPLETED") {
         this.broadcast("task:completed", { taskId: updated.id, result });
+        this.broadcastToTask(taskId, "task_completed", { result });
       } else if (finalState === "TASK_STATE_FAILED") {
         this.broadcast("task:failed", { taskId: updated.id, error });
+        this.broadcastToTask(taskId, "task_failed", { error });
       } else if (finalState === "TASK_STATE_CANCELED") {
         this.broadcast("task:failed", { taskId: updated.id, error: "Task was cancelled" });
+        this.broadcastToTask(taskId, "task_failed", { error: "Task was cancelled" });
       }
 
       console.log(`[SharedState] Task ${updated.id.slice(0, 8)} → ${finalState}`);
@@ -285,8 +297,13 @@ export class SharedStateServer {
       }
 
       // Single request
-      const response = await this.rpc.dispatch(body as JsonRpcRequest);
-      res.json(response);
+      try {
+        const response = await this.rpc.dispatch(body as JsonRpcRequest);
+        res.json(response);
+      } catch (err: unknown) {
+        console.error("[SharedState] /rpc dispatch error:", err);
+        res.status(500).json({ jsonrpc: "2.0", id: null, error: { code: -32603, message: String(err) }});
+      }
     });
   }
 
@@ -312,6 +329,35 @@ export class SharedStateServer {
       res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
     });
 
+    // ── Streaming SSE for specific task (Google A2A: task subscription) ──
+
+    this.app.get("/tasks/:taskId/streams", (req: Request, res: Response) => {
+      const taskId = req.params.taskId;
+      const clientId = (req.query.clientId as string) || crypto.randomUUID();
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.setHeader("A2A-Version", "1.0");
+
+      const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
+      this.taskStreams.set(clientId, res);
+
+      // Send current task state immediately
+      const task = this.tasks.get(taskId);
+      if (task) {
+        res.write(`event: task_update\ndata: ${JSON.stringify({ taskId: task.id, status: task.status })}\n\n`);
+      }
+
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        this.taskStreams.delete(clientId);
+      });
+
+      res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
+    });
+
     this.app.get("/health", (_req: Request, res: Response) => {
       res.json({
         ok: true,
@@ -325,6 +371,16 @@ export class SharedStateServer {
   private broadcast(event: string, data: unknown): void {
     const payload = JSON.stringify(data);
     for (const res of this.sseClients.values()) {
+      res.write(`event: ${event}\ndata: ${payload}\n\n`);
+    }
+    for (const res of this.taskStreams.values()) {
+      res.write(`event: ${event}\ndata: ${payload}\n\n`);
+    }
+  }
+
+  private broadcastToTask(taskId: string, event: string, data: unknown): void {
+    const payload = JSON.stringify({ taskId, ...data });
+    for (const res of this.taskStreams.values()) {
       res.write(`event: ${event}\ndata: ${payload}\n\n`);
     }
   }
@@ -536,3 +592,40 @@ export class SharedStateClient {
     throw new Error(`Task ${taskId} timed out after ${timeout}ms`);
   }
 }
+
+  subscribeToTask(
+    taskId: string,
+    onEvent: (event: string, data: unknown) => void,
+  ): () => void {
+    const controller = new AbortController();
+    let currentEvent = "message";
+
+    fetch(this.baseUrl + "/tasks/" + taskId + "/streams?clientId=" + crypto.randomUUID(), { signal: controller.signal })
+      .then((response) => {
+        if (!response.body) return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        function process() {
+          reader.read().then(({ done, value }: { done: boolean; value: Uint8Array }) => {
+            if (done) return;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (line.startsWith("event: ")) {
+                currentEvent = line.slice(7).trim();
+              } else if (line.startsWith("data: ")) {
+                try { onEvent(currentEvent, JSON.parse(line.slice(6))); } catch { onEvent(currentEvent, line.slice(6)); }
+              }
+            }
+            if (!controller.signal.aborted) process();
+          });
+        }
+        process();
+      })
+      .catch(() => {});
+
+    return () => { controller.abort(); };
+  }

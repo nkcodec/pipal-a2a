@@ -190,6 +190,32 @@ export interface AgentCard {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// TaskStatusUpdateEvent (Google A2A: streaming via SSE)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * A streaming event sent via SSE as a task transitions through states.
+ * Used for real-time progress updates during task execution.
+ */
+export interface TaskStatusUpdateEvent {
+  readonly taskId: string;
+  readonly contextId?: string;
+  readonly status: TaskStatus;
+  readonly agentName?: string;
+}
+
+/**
+ * A partial artifact streamed during task execution.
+ * Used when results arrive incrementally (e.g. code written, files created).
+ */
+export interface TaskArtifactUpdateEvent {
+  readonly taskId: string;
+  readonly contextId?: string;
+  readonly artifact: Artifact;
+  readonly isFinal?: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Factory functions — ensure immutability
 // ─────────────────────────────────────────────────────────────────
 

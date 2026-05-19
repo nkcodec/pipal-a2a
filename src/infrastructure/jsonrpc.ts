@@ -2,13 +2,6 @@
  * PiPal-A2A Infrastructure — JSON-RPC 2.0 Binding
  *
  * Google A2A spec §9 — JSON-RPC 2.0 transport binding.
- *
- * Single POST endpoint at /rpc. All methods use:
- *   POST /rpc  { "jsonrpc": "2.0", "method": "...", "params": {...}, "id": 1 }
- *   Response: { "jsonrpc": "2.0", "result": {...}, "id": 1 }
- *   Error:    { "jsonrpc": "2.0", "error": { "code": N, "message": "..." }, "id": 1 }
- *
- * A2A-Version: 1.0 header on all responses.
  */
 
 // ─────────────────────────────────────────────────────────────────
