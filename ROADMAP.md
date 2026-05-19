@@ -13,13 +13,14 @@ v0.1.0  ← current (core types + shared state + extension + tests)
 v0.1.1  ← shipped: JSON-RPC 2.0 at POST /rpc ✅  (35 commits)
 v0.1.2  ← streaming (SendStreamingMessage)
 v0.1.3  ← multi-turn (contextId)
-v0.1.4  ← auth (API Key)
+v0.1.4  ← auth (API Key) ✅
 v0.1.5  ← agent card signing + well-known discovery
 v0.1.6  ← push notifications
 v0.1.7  ← gRPC binding
 v0.1.8  ← OAuth2 + extended agent card
 v0.1.9  ← final polish, interop tests
 v0.2.0  ← = "v1.0" — full Google A2A spec compliance
+v0.2.1  ← Auto-Router (skill-based, no human delegation)
 ```
 
 **Rule:** `v0.2.0` is the milestone where we can say "fully Google A2A v1.0 compliant".
@@ -252,6 +253,24 @@ This IS the "v1.0" milestone. We can honestly say:
 - [ ] Full spec compliance test suite passing
 - [ ] Interop verified with reference implementation
 - [ ] npm publish as `pipal-a2a`
+
+---
+
+## v0.2.1 — Auto-Router (skill-based, no human delegation)
+
+Replaces manual human delegation with automatic skill-based routing.
+Per karpathy-clean-code: routing is configuration, not core.
+
+- [ ] `TaskRouter` interface — pluggable routing strategy
+- [ ] `SkillBasedRouter` — matches task to agent by skill, no human needed
+- [ ] `config/team.yaml` — defines roles, skills, escalation rules
+- [ ] `EscalationRule` — if skill unmatched, escalate to configured agent
+- [ ] `DefaultTaskRouter` — current behavior (manual delegation) remains fallback
+- [ ] Agent decides when to escalate vs handle directly
+
+**Exit criteria:** User says "build a todo app", frontend agent auto-routes to backend + frontend without human telling it whom to delegate to.
+
+Per karpathy-clean-code: Core (Task lifecycle) stays frozen. Router is infrastructure. Config activates, not defines.
 
 ---
 

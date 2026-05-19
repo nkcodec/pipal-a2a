@@ -2,7 +2,7 @@
 
 **Each pi terminal IS an agent.** P2P multi-agent orchestration via Google A2A v1.0 — watch real pi sessions collaborate in real-time.
 
-> **v0.1.4 shipped** — 48 commits on `master`. Multi-turn via contextId. Token-by-token streaming. JSON-RPC 2.0.
+> **v0.1.4 shipped** — 49 commits on `master`. API key auth. Multi-turn. Streaming. JSON-RPC 2.0.
 
 ## What is PiPal-A2A?
 
@@ -15,65 +15,37 @@ A **pi extension** that turns every pi terminal into a node in a P2P agent netwo
 ## How It Works
 
 ```
-Terminal 1 (planner)              Terminal 2 (backend)              Terminal 3 (reviewer)
+Terminal 1 (frontend)            Terminal 2 (backend)              Terminal 3 (planner)
 ┌──────────────────────┐         ┌──────────────────────┐         ┌──────────────────────┐
 │ $ pi                 │         │ $ pi                 │         │ $ pi                 │
 │                      │         │                      │         │                      │
-│ You: "Build login   │         │ You see nothing yet  │         │ You see nothing yet  │
-│ API and review it"   │         │                      │         │                      │
+│ You: "Build a todo  │         │ You see nothing yet  │         │ You see nothing yet  │
+│ app"                │         │                      │         │                      │
 │                      │         │                      │         │                      │
-│ LLM: calls           │  task   │ 📩 Delegated task    │         │                      │
-│ pipal_a2a_delegate() │───────►│ from planner:        │         │                      │
-│                      │         │ "Implement login API"│         │                      │
-│ ⏳ Waiting for       │         │                      │         │                      │
-│ backend result...    │         │ LLM: reads files,    │  done   │                      │
-│                      │         │ writes code, runs    │─────────│                      │
-│                      │         │ tests (you see all   │         │                      │
-│                      │◄────────│ of this in real-time)│         │                      │
-│ LLM: Got result.    │         │                      │         │                      │
-│ Now reviewing...     │         │                      │         │                      │
-│                      │         │                      │  task   │ 📩 Delegated task    │
-│ LLM: calls           │─────────────────────────────────────────►│ from planner:        │
-│ pipal_a2a_delegate() │         │                      │         │ "Review for security"│
+│ LLM: decides to      │  task   │ 📩 Delegated task    │         │                      │
+│ delegate to backend  │───────►│ from frontend:       │         │                      │
+│ (skill match)        │         │ "Build REST API"     │         │                      │
 │                      │         │                      │         │                      │
-│ ⏳ Waiting for       │         │                      │         │ LLM: analyzes code,  │
-│ reviewer result...   │         │                      │         │ finds issues (you    │
-│                      │         │                      │         │ see the analysis!)   │
-│                      │◄─────────────────────────────────────────│                      │
-│ LLM: Done! Login API│         │                      │         │                      │
-│ built + reviewed     │         │                      │         │                      │
+│ ⏳ Waiting for       │         │ LLM: writes server,  │  done   │                      │
+│ backend result...    │         │ runs npm, tests      │─────────│                      │
+│                      │         │ (you see all in      │         │                      │
+│                      │         │ real-time)           │         │                      │
+│                      │◄────────│                      │         │                      │
+│ LLM: Got API done.  │         │                      │         │                      │
+│ Building UI now...   │         │                      │         │                      │
+│                      │         │                      │         │                      │
+│ LLM: writes React   │         │                      │         │                      │
+│ components, runs     │         │                      │         │                      │
+│ npm build            │         │                      │         │                      │
+│                      │         │                      │         │                      │
+│ ✅ Todo app done.    │         │                      │         │                      │
+│ Backend + Frontend  │         │                      │         │                      │
+│ both complete.       │         │                      │         │                      │
 └──────────────────────┘         └──────────────────────┘         └──────────────────────┘
-                              │
-                    ┌─────────┴──────────┐
-                    │   Shared State     │
-                    │   (HTTP + SSE)     │  ← First terminal auto-starts this
-                    │   localhost:5000   │     Others connect to it
-                    └────────────────────┘
 ```
 
-## Google A2A v1.0 Compliance
+**Auto-Router (v0.2.1):** Agents delegate automatically by skill — no human telling whom to delegate to.
 
-We use the [Google A2A v1.0](https://github.com/google/A2A) data model for all agent communication:
-
-| Spec Type | What We Use | Status |
-|-----------|-------------|--------|
-| **AgentCard** | `name`, `supportedInterfaces[]`, `capabilities`, `skills[]` | ✅ Full v1.0 |
-| **Task** | `id`, `status`, `history`, `artifacts` | ✅ Full |
-| **TaskState** | `TASK_STATE_SUBMITTED/WORKING/COMPLETED/FAILED` | ✅ Full |
-| **Message** | `role: ROLE_USER/ROLE_AGENT`, `parts[]`, `messageId` | ✅ Full |
-| **Part** | Unified: `text`, `raw`, `url`, `data` + `mediaType` | ✅ Full |
-| **Artifact** | `artifactId`, `parts[]`, `name` | ✅ Full |
-| **AgentSkill** | `id`, `name`, `description`, `tags`, `examples` | ✅ Full |
-| **AgentCapabilities** | `streaming`, `pushNotifications` | ✅ Full |
-| **AgentInterface** | `url`, `protocolBinding`, `protocolVersion` | ✅ Full |
-| **Transport** | REST binding (spec §11) | ✅ Full |
-| **Agent Discovery** | Shared state rendezvous | ✅ Shipped |
-| **Auth** | API Key (Bearer token) | ✅ v0.1.4 |
-| **JSON-RPC binding** | JSON-RPC 2.0 at POST /rpc (spec §9) | ✅ Full |
-| **Streaming** | `tasks/sendStreamingMessage` + SSE | ✅ v0.1.2 |
-| **`/.well-known/agent-card.json`** | Shared state instead | ✅ Shipped |
-| **Multi-turn (`contextId`)** | Single task per delegation | ✅ v0.1.3 |
-| **gRPC binding** | Not needed for v1 | ❌ v0.1.7 |
 
 ## Quick Start
 
@@ -333,4 +305,4 @@ pipal_a2a_delegate                          [idle, watching]
 - Google A2A v1.0 data model throughout
 - 51 unit tests passing
 
-**Next:** v0.1.1 — JSON-RPC binding, then streaming (v0.1.2), multi-turn (v0.1.3), auth (v0.1.4).
+**Next:** v0.1.5 — agent card signing + well-known discovery. v0.2.1 — Auto-Router (skill-based, no human delegation).
