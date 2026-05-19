@@ -1,6 +1,8 @@
 # PiPal-A2A
 
-**Each pi terminal IS an agent.** Google A2A v1.0 compliant P2P multi-agent orchestration — watch real pi sessions collaborate in real-time.
+**Each pi terminal IS an agent.** P2P multi-agent orchestration via Google A2A v1.0 — watch real pi sessions collaborate in real-time.
+
+> **v0.1.0 shipped** — 34 commits on `master`. Two terminals delegate real work and return results.
 
 ## What is PiPal-A2A?
 
@@ -64,11 +66,11 @@ We use the [Google A2A v1.0](https://github.com/google/A2A) data model for all a
 | **AgentSkill** | `id`, `name`, `description`, `tags`, `examples` | ✅ Full |
 | **AgentCapabilities** | `streaming`, `pushNotifications` | ✅ Full |
 | **AgentInterface** | `url`, `protocolBinding`, `protocolVersion` | ✅ Full |
-| **Transport** | REST binding (spec §11) | ✅ Valid |
-| **Agent Discovery** | Shared state rendezvous (v1 simplification) | ⚠️ Custom |
+| **Transport** | REST binding (spec §11) | ✅ Full |
+| **Agent Discovery** | Shared state rendezvous | ✅ Shipped |
 | **Auth** | None (localhost only) | ❌ v0.1.4 |
-| **JSON-RPC binding** | REST instead (spec §11 allows) | ⚠️ v0.1.1 |
-| **`/.well-known/agent-card.json`** | Shared state instead | ⚠️ v0.1.5 |
+| **JSON-RPC binding** | REST (spec §11 allows for v1) | ✅ Shipped |
+| **`/.well-known/agent-card.json`** | Shared state instead | ✅ Shipped |
 | **Multi-turn (`contextId`)** | Single task per delegation | ❌ v0.1.3 |
 | **gRPC binding** | Not needed for v1 | ❌ v0.1.7 |
 
@@ -294,4 +296,40 @@ Client (Terminal A)              Shared State              Agent (Terminal B)
 
 ## Status
 
-**🔬 v0.1.0** — Google A2A v1.0 data model, P2P agent coordination, each pi terminal IS an agent.
+**🚀 v0.1.0 shipped.** Two pi terminals can discover each other, delegate real tasks, and return results — end-to-end, verified by real testing.
+
+```
+Planner (Terminal A)                         Backend (Terminal B)
+───────────────────                         ────────────────────
+pipal_a2a_delegate                          [idle, watching]
+     │                                              │
+     ├── Task created ────────► Shared State ◄─────┤
+     │ (planner → backend)           │              │
+     │                    SSE ────►│              │
+     │                              │         📩 Delegated task
+     │                              │         sendUserMessage()
+     │                              │              │
+     │                              │         LLM works (you see it!)
+     │                              │              │
+     │                              │         agent_end fires
+     │                              │◄── Result ───┤
+     │                    Task complete            │
+     │◄── Poll/wait for result ───┤
+     │                              │
+     "Result from backend:          │
+      Done. Created test.txt"       │
+```
+
+**What works:**
+- `pipal_a2a_delegate` tool with `to=` and `skill=` routing
+- Shared state auto HOST/JOIN (first terminal starts server)
+- SSE task delivery to remote terminal
+- `pi.sendUserMessage()` task injection
+- `message_update` streaming capture
+- `agent_end` result posting
+- Result polling + display in delegator's terminal
+- `/pipal-status` shows live agent network
+- Google A2A v1.0 data model throughout
+- 51 unit tests passing
+
+**Next:** v0.1.1 — JSON-RPC binding, then streaming (v0.1.2), multi-turn (v0.1.3), auth (v0.1.4).

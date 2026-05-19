@@ -2,6 +2,8 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
+> **v0.1.0 shipped** — 34 commits on `master`. Two pi terminals delegate real work and return results.
+
 ---
 
 ## Versioning Strategy
@@ -39,7 +41,22 @@ Everything before that is incremental, testable, shippable.
 
 ---
 
-## v0.1.0 — Foundation ✅ (Current)
+## v0.1.0 — Foundation ✅
+
+**34 commits.** Fully shipped. Run it today:
+
+```bash
+pi install ./pipal-a2a
+
+# Terminal 1 — backend worker
+PIPAL_NAME=backend PIPAL_SKILLS=code-generation,backend-implementation pi
+
+# Terminal 2 — planner (in a new window)
+PIPAL_NAME=planner PIPAL_SKILLS=planning,delegation pi
+
+# In planner terminal, type:
+Use pipal_a2a_delegate with to="backend" to send this task: write "hello from A2A" to test.txt
+```
 
 ### Phase 1: Google A2A v1.0 Core Types ✅
 
