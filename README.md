@@ -44,7 +44,7 @@ Terminal 1 (frontend)            Terminal 2 (backend)              Terminal 3 (p
 └──────────────────────┘         └──────────────────────┘         └──────────────────────┘
 ```
 
-**Auto-Router (v0.2.1):** Agents delegate automatically by skill — no human telling whom to delegate to.
+**Auto-Router (v0.1.7):** Agents delegate automatically by skill — no human telling whom to delegate to.
 
 
 ## Quick Start
@@ -305,4 +305,4 @@ pipal_a2a_delegate                          [idle, watching]
 - Google A2A v1.0 data model throughout
 - 51 unit tests passing
 
-**Next:** v0.1.5 — agent card signing + well-known discovery. v0.2.1 — Auto-Router (skill-based, no human delegation).
+**Next:** v0.1.5 — agent card signing + well-known discovery. v0.1.7 — Auto-Router (skill-based, no human delegation).
