@@ -307,7 +307,7 @@ export class SharedStateServer {
     // tasks/addMessage — append a follow-up message to an existing task
     // Google A2A spec §3.4: multi-turn conversations via contextId
     this.rpc.register("tasks/addMessage", async (params) => {
-      const { taskId, message, role, requireInput } = params as {
+        const { taskId, message, role, requireInput } = params as {
         taskId?: string;
         message?: string;
         role?: string;
@@ -663,8 +663,8 @@ export class SharedStateClient {
           }
         }
       } catch (error) {
-        if (!closed) {
-          console.error("[SharedStateClient] SSE connection lost:", error);
+        if (!closed && !(error instanceof DOMException && error.name === "AbortError")) {
+          console.warn("[SharedStateClient] SSE connection closed:", error.message ?? error);
         }
       }
     };
