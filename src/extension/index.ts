@@ -281,6 +281,9 @@ export default function (pi: ExtensionAPI) {
       case "task:failed":
         console.log(`[pipal-a2a] ❌ Task ${data?.taskId?.slice(0, 8)} failed: ${data?.error}`);
         break;
+      case "task:message":
+        // Multi-turn: message appended to task history
+        break;
     }
   }
 
@@ -437,6 +440,28 @@ export default function (pi: ExtensionAPI) {
                 });
               }
             }
+            // Multi-turn: backend asks a follow-up question
+            if (event === "task_update") {
+              const status = (data as any)?.status;
+              if (status?.state === "TASK_STATE_INPUT_REQUIRED") {
+                // Get the latest agent message from task history
+                const taskNow = await client.getTask(taskId);
+                const lastAgentMsg = [...(taskNow.history || [])]
+                  .reverse()
+                  .find((m) => m.role === "ROLE_AGENT");
+                const question = lastAgentMsg?.parts?.[0]?.text ?? "The agent needs more information.";
+                // Send the question back as part of the streaming output
+                accumulated += `\n\n❓ **${targetCard.name} asks:** ${question}\n*Responding automatically with task context...*\n`;
+                if (onUpdate) {
+                  onUpdate({
+                    content: [{ type: "text" as const, text: accumulated }],
+                    details: { taskId, from: card.name, to: targetCard.name, inputRequired: true },
+                  });
+                }
+                // Auto-respond with the original task context
+                await client.sendFollowUp(taskId, `Continue with the task. Original request: ${params.task}`, { role: "ROLE_USER" });
+              }
+            }
             if (event === "task_completed" || event === "task_failed") {
               clearTimeout(timer);
               unsub();
@@ -511,6 +536,55 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(`${agents.length} agent(s) online (A2A v1.0):\n${lines}`, "info");
       } catch (error) {
         ctx.ui.notify(`Failed to get status: ${error}`, "error");
+      }
+    },
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Tool: pipal_a2a_ask (multi-turn follow-up)
+  // ───────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "pipal_a2a_ask",
+    label: "Ask Follow-Up Question (A2A)",
+    description:
+      "Ask a follow-up question on a delegated task when you need clarification. " +
+      "Use ONLY when you are processing a task from another agent and need more information. " +
+      "The question will be sent back to the delegating agent.",
+    promptSnippet: "Ask follow-up question on delegated task",
+    promptGuidelines: [
+      "Use pipal_a2a_ask when processing a delegated task and you need clarification.",
+      "The question goes back to the agent that sent you the task.",
+      "After asking, wait — the delegating agent will respond with more information.",
+    ],
+    parameters: Type.Object({
+      question: Type.String({ description: "The follow-up question to ask the delegating agent" }),
+    }),
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      if (!client || !currentDelegatedTaskId) {
+        return {
+          content: [{ type: "text" as const, text: "Error: No active delegated task to ask about." }],
+          details: { error: "no_task" },
+        };
+      }
+
+      try {
+        const task = await client.sendFollowUp(currentDelegatedTaskId, params.question, {
+          role: "ROLE_AGENT",
+          requireInput: true,
+        });
+        console.log(`[pipal-a2a] ❓ Asked follow-up on ${currentDelegatedTaskId.slice(0, 8)}: "${params.question.slice(0, 40)}..."`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Question sent to delegating agent. Waiting for response...`,
+          }],
+          details: { taskId: currentDelegatedTaskId, asked: true },
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text" as const, text: `Failed to ask follow-up: ${error}` }],
+          details: { error: String(error) },
+        };
       }
     },
   });

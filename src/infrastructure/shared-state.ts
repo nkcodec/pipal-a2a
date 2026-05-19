@@ -138,11 +138,12 @@ export class SharedStateServer {
   private setupRpcRoutes(): void {
     // tasks/sendMessage — create a new task
     this.rpc.register("tasks/sendMessage", async (params) => {
-      const { task, skill, to, id: reqId } = params as {
+      const { task, skill, to, id: reqId, contextId } = params as {
         task?: string;
         skill?: string;
         to?: string;
         id?: string;
+        contextId?: string;
       };
       if (!task) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "task is required" };
 
@@ -152,8 +153,11 @@ export class SharedStateServer {
       // For now, from/to are in params — stored as routing metadata
       const fromAgent = agentName || "anonymous";
 
+      // contextId links multi-turn conversations (Google A2A spec §3.4)
+      const ctxId = contextId || crypto.randomUUID();
+
       const stored: StoredTask = {
-        ...createTask(crypto.randomUUID(), "TASK_STATE_SUBMITTED"),
+        ...createTask(crypto.randomUUID(), "TASK_STATE_SUBMITTED", { contextId: ctxId }),
         fromAgent,
         toAgent: to || null,
         skillHint: skill || null,
@@ -298,6 +302,57 @@ export class SharedStateServer {
       });
 
       return { ok: true };
+    });
+
+    // tasks/addMessage — append a follow-up message to an existing task
+    // Google A2A spec §3.4: multi-turn conversations via contextId
+    this.rpc.register("tasks/addMessage", async (params) => {
+      const { taskId, message, role, requireInput } = params as {
+        taskId?: string;
+        message?: string;
+        role?: string;
+        requireInput?: boolean;
+      };
+      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+      if (!message) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "message is required" };
+
+      const task = this.tasks.get(taskId);
+      if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
+
+      const msg = {
+        role: role === "ROLE_AGENT" ? "ROLE_AGENT" as const : "ROLE_USER" as const,
+        parts: [{ text: message, mediaType: "text/plain" }],
+        messageId: crypto.randomUUID(),
+        taskId,
+        contextId: task.contextId,
+      };
+
+      const history = [...(task.history || []), msg];
+      // If agent asks for input → INPUT_REQUIRED. If user responds → back to WORKING.
+      let newState: TaskState;
+      if (requireInput) {
+        newState = "TASK_STATE_INPUT_REQUIRED";
+      } else if (task.status.state === "TASK_STATE_INPUT_REQUIRED" && role === "ROLE_USER") {
+        newState = "TASK_STATE_WORKING";
+      } else {
+        newState = task.status.state;
+      }
+
+      const updated: StoredTask = {
+        ...task,
+        history,
+        status: { state: newState, timestamp: new Date().toISOString() },
+      };
+      this.tasks.set(taskId, updated);
+
+      this.broadcastToTask(taskId, "task_update", {
+        status: updated.status,
+        historyLength: history.length,
+      });
+      this.broadcast("task:message", { taskId, from: role, message });
+
+      console.log(`[SharedState] Task ${taskId.slice(0, 8)} +message (${role}): "${message.slice(0, 40)}..."`);
+      return { task: updated };
     });
 
     // ── JSON-RPC POST /rpc endpoint ────────────────────────────────
@@ -499,6 +554,7 @@ export class SharedStateClient {
     to?: string;
     skill?: string;
     task: string;
+    contextId?: string;
   }): Promise<string> {
     const { taskId } = (await this.rpcCall<{ taskId: string; task: StoredTask }>(
       "tasks/sendMessage",
@@ -507,6 +563,7 @@ export class SharedStateClient {
         to: params.to,
         skill: params.skill,
         agentName: params.from,
+        contextId: params.contextId,
       }
     ));
     return taskId;
@@ -555,6 +612,16 @@ export class SharedStateClient {
 
   async streamChunk(taskId: string, chunk: string): Promise<void> {
     await this.rpcCall("tasks/streamChunk", { taskId, chunk });
+  }
+
+  async sendFollowUp(taskId: string, message: string, options?: { role?: string; requireInput?: boolean }): Promise<StoredTask> {
+    const { task } = (await this.rpcCall<{ task: StoredTask }>("tasks/addMessage", {
+      taskId,
+      message,
+      role: options?.role ?? "ROLE_USER",
+      requireInput: options?.requireInput ?? false,
+    }));
+    return task;
   }
 
   subscribe(handler: (event: string, data: unknown) => void): () => void {

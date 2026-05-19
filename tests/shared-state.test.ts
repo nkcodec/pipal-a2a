@@ -194,4 +194,51 @@ describe("SharedStateServer + Client", () => {
     expect((artifactUpdates[0][1] as any).chunk).toBe("Hello ");
     expect((artifactUpdates[1][1] as any).chunk).toBe("World!");
   }, 10_000);
+
+  it("createTask assigns a contextId", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "ContextId test",
+    });
+    const task = await client.getTask(taskId);
+    expect(task.contextId).toBeTruthy();
+  });
+
+  it("createTask preserves explicit contextId", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "Explicit context",
+      contextId: "my-custom-context",
+    });
+    const task = await client.getTask(taskId);
+    expect(task.contextId).toBe("my-custom-context");
+  });
+
+  it("sendFollowUp appends message to task history", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "Multi-turn test",
+    });
+    const updated = await client.sendFollowUp(taskId, "Need more details", {
+      role: "ROLE_AGENT",
+      requireInput: true,
+    });
+    expect(updated.history).toHaveLength(1);
+    expect(updated.history![0].role).toBe("ROLE_AGENT");
+    expect(updated.history![0].parts[0].text).toBe("Need more details");
+    expect(updated.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
+  });
+
+  it("sendFollowUp with user response restores working state", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "Multi-turn response",
+    });
+    await client.sendFollowUp(taskId, "What file?", { role: "ROLE_AGENT", requireInput: true });
+    const resolved = await client.sendFollowUp(taskId, "test.txt", { role: "ROLE_USER" });
+    expect(resolved.history).toHaveLength(2);
+    expect(resolved.history![1].role).toBe("ROLE_USER");
+    // State returns to SUBMITTED (not INPUT_REQUIRED) since requireInput is false
+    expect(resolved.status.state).not.toBe("TASK_STATE_INPUT_REQUIRED");
+  });
 });
