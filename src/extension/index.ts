@@ -444,22 +444,26 @@ export default function (pi: ExtensionAPI) {
             if (event === "task_update") {
               const status = (data as any)?.status;
               if (status?.state === "TASK_STATE_INPUT_REQUIRED") {
-                // Get the latest agent message from task history
-                const taskNow = await client.getTask(taskId);
-                const lastAgentMsg = [...(taskNow.history || [])]
-                  .reverse()
-                  .find((m) => m.role === "ROLE_AGENT");
-                const question = lastAgentMsg?.parts?.[0]?.text ?? "The agent needs more information.";
-                // Send the question back as part of the streaming output
-                accumulated += `\n\n❓ **${targetCard.name} asks:** ${question}\n*Responding automatically with task context...*\n`;
-                if (onUpdate) {
-                  onUpdate({
-                    content: [{ type: "text" as const, text: accumulated }],
-                    details: { taskId, from: card.name, to: targetCard.name, inputRequired: true },
-                  });
-                }
-                // Auto-respond with the original task context
-                await client.sendFollowUp(taskId, `Continue with the task. Original request: ${params.task}`, { role: "ROLE_USER" });
+                // Fire async — can't await in sync SSE callback
+                (async () => {
+                  try {
+                    const taskNow = await client.getTask(taskId);
+                    const lastAgentMsg = [...(taskNow.history || [])]
+                      .reverse()
+                      .find((m) => m.role === "ROLE_AGENT");
+                    const question = lastAgentMsg?.parts?.[0]?.text ?? "The agent needs more information.";
+                    accumulated += `\n\n❓ **${targetCard.name} asks:** ${question}\n*Responding automatically with task context...*\n`;
+                    if (onUpdate) {
+                      onUpdate({
+                        content: [{ type: "text" as const, text: accumulated }],
+                        details: { taskId, from: card.name, to: targetCard.name, inputRequired: true },
+                      });
+                    }
+                    await client.sendFollowUp(taskId, `Continue with the task. Original request: ${params.task}`, { role: "ROLE_USER" });
+                  } catch (err) {
+                    console.error("[pipal-a2a] multi-turn error:", err);
+                  }
+                })();
               }
             }
             if (event === "task_completed" || event === "task_failed") {
