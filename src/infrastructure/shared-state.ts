@@ -64,7 +64,7 @@ export class SharedStateServer {
   private agents = new Map<string, AgentCard>();
   private tasks = new Map<string, StoredTask>();
   private sseClients = new Map<string, Response>();
-  private taskStreams = new Map<string, Response>();
+  private taskStreams = new Map<string, { res: Response; taskId: string }>();
 
   // JSON-RPC dispatcher for task methods
   private rpc = new JsonRpcDispatcher();
@@ -86,9 +86,9 @@ export class SharedStateServer {
   }
 
   async stop(): Promise<void> {
-    for (const res of this.sseClients.values()) res.end();
+    for (const { res } of this.sseClients.values()) res.end();
     this.sseClients.clear();
-    for (const res of this.taskStreams.values()) res.end();
+    for (const { res } of this.taskStreams.values()) res.end();
     this.taskStreams.clear();
     return new Promise((resolve, reject) => {
       this.server?.close((err) => (err ? reject(err) : resolve()));
@@ -301,7 +301,6 @@ export class SharedStateServer {
         const response = await this.rpc.dispatch(body as JsonRpcRequest);
         res.json(response);
       } catch (err: unknown) {
-        console.error("[SharedState] /rpc dispatch error:", err);
         res.status(500).json({ jsonrpc: "2.0", id: null, error: { code: -32603, message: String(err) }});
       }
     });
@@ -342,7 +341,7 @@ export class SharedStateServer {
       res.setHeader("A2A-Version", "1.0");
 
       const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
-      this.taskStreams.set(clientId, res);
+      this.taskStreams.set(clientId, { res, taskId });
 
       // Send current task state immediately
       const task = this.tasks.get(taskId);
@@ -356,6 +355,17 @@ export class SharedStateServer {
       });
 
       res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
+
+      // Catch-up: if task is already terminal, send final event
+      const t2 = this.tasks.get(taskId);
+      if (t2) {
+        const s = t2.status.state;
+        if (s === "TASK_STATE_COMPLETED") {
+          res.write(`event: task_completed\ndata: ${JSON.stringify({ taskId, result: t2.artifacts?.[0]?.parts?.[0]?.text })}\n\n`);
+        } else if (s === "TASK_STATE_FAILED") {
+          res.write(`event: task_failed\ndata: ${JSON.stringify({ taskId, error: t2.metadata?.error })}\n\n`);
+        }
+      }
     });
 
     this.app.get("/health", (_req: Request, res: Response) => {
@@ -373,15 +383,21 @@ export class SharedStateServer {
     for (const res of this.sseClients.values()) {
       res.write(`event: ${event}\ndata: ${payload}\n\n`);
     }
-    for (const res of this.taskStreams.values()) {
-      res.write(`event: ${event}\ndata: ${payload}\n\n`);
-    }
+    // taskStreams are per-task — use broadcastToTask instead
   }
 
   private broadcastToTask(taskId: string, event: string, data: unknown): void {
+    console.log(`[broadcastToTask] ${event} for ${taskId.slice(0,8)}, streams: ${this.taskStreams.size}`);
     const payload = JSON.stringify({ taskId, ...data });
-    for (const res of this.taskStreams.values()) {
-      res.write(`event: ${event}\ndata: ${payload}\n\n`);
+    for (const [cid, entry] of this.taskStreams) {
+      console.log(`  stream ${cid.slice(0,8)}: taskId=${entry.taskId.slice(0,8)} match=${entry.taskId === taskId}`);
+      if (entry.taskId === taskId) {
+        console.log(`  -> writing to ${cid.slice(0,8)}`);
+        entry.res.write(`event: ${event}
+data: ${payload}
+
+`);
+      }
     }
   }
 }
@@ -573,10 +589,12 @@ export class SharedStateClient {
   async waitForResult(taskId: string, options?: { timeout?: number }): Promise<StoredTask> {
     const timeout = options?.timeout ?? 120_000;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`Task ${taskId} timed out after ${timeout}ms`)), timeout);
+      const timer = setTimeout(() => {
+                reject(new Error(`Task ${taskId} timed out after ${timeout}ms`));
+      }, timeout);
       let completed = false;
-      const unsub = this.subscribeToTask(taskId, (event, data) => {
-        if (completed) return;
+            const unsub = this.subscribeToTask(taskId, (event, data) => {
+                if (completed) return;
         if (event === "task_completed" || event === "task_failed") {
           completed = true;
           clearTimeout(timer);
@@ -596,14 +614,14 @@ export class SharedStateClient {
 
     fetch(this.baseUrl + "/tasks/" + taskId + "/streams?clientId=" + crypto.randomUUID(), { signal: controller.signal })
       .then((response) => {
-        if (!response.body) return;
+        if (!response.ok || !response.body) return;
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
 
         function process() {
           reader.read().then(({ done, value }: { done: boolean; value: Uint8Array }) => {
-            if (done) return;
+            if (done || controller.signal.aborted) return;
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
@@ -614,7 +632,9 @@ export class SharedStateClient {
                 try { onEvent(currentEvent, JSON.parse(line.slice(6))); } catch { onEvent(currentEvent, line.slice(6)); }
               }
             }
-            if (!controller.signal.aborted) process();
+            process();
+          }).catch(() => {
+            // read aborted or failed
           });
         }
         process();

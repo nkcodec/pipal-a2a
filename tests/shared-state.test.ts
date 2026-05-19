@@ -130,4 +130,42 @@ describe("SharedStateServer + Client", () => {
     const task = await client.getTask(taskId);
     expect(task.status.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
+
+  it("waitForResult resolves via SSE stream", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "SSE wait test",
+    });
+
+    // Start waiting first, then post result — SSE delivers the event and
+    // waitForResult resolves without polling. Post result before waiting
+    // to exercise the SSE-fast-path.
+    await client.postResult(taskId, "SSE worked!");
+    const task = await client.waitForResult(taskId, { timeout: 10_000 });
+    expect(task.status.state).toBe("TASK_STATE_COMPLETED");
+    expect(task.artifacts).toHaveLength(1);
+    expect(task.artifacts![0].parts[0].text).toBe("SSE worked!");
+  }, 15_000);
+
+  it("subscribeToTask receives streaming events", async () => {
+    const taskId = await client.createTask({
+      from: "planner",
+      task: "Subscribe test",
+    });
+
+    const events = [];
+    const unsub = client.subscribeToTask(taskId, (event, data) => {
+      events.push([event, data]);
+    });
+
+    await new Promise((r) => setTimeout(r, 300));
+    await client.postResult(taskId, "Subscribed result");
+    await new Promise((r) => setTimeout(r, 500));
+    unsub();
+
+    expect(events.some(([e]) => e === "task_completed")).toBe(true);
+    const completed = events.find(([e]) => e === "task_completed");
+    expect(completed).toBeTruthy();
+    expect(completed![1].result).toBe("Subscribed result");
+  }, 10_000);
 });
