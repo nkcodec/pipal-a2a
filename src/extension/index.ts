@@ -209,45 +209,27 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("message_update", (event: any) => {
-    // ── RAW DIAGNOSTIC: log every event when we have a delegated task ──
-    if (currentDelegatedTaskId) {
-      const keys = Object.keys(event || {});
+    // ── UNCONDITIONAL: log EVERY message_update ──
+    {
       const msg = event?.message;
-      const msgKeys = msg ? Object.keys(msg) : [];
       const role = msg?.role;
-      const contentType = typeof msg?.content;
-      const contentPreview = typeof msg?.content === "string"
-        ? msg.content.slice(0, 80)
-        : Array.isArray(msg?.content)
-          ? "array:" + msg.content.length
-          : typeof msg?.content;
-      console.log(
-        `[pipal-a2a] 📨 message_update. keys=[${keys}] msg.keys=[${msgKeys}] ` +
-        `role=${role} content=${contentType}(${contentPreview})`
-      );
-      // Also log non-message events that might carry content
-      if (!msg && event?.content) {
-        console.log(
-          `[pipal-a2a] 📨 direct content: type=${typeof event.content} ` +
-          `preview=${String(event.content).slice(0, 80)}`
-        );
-      }
-      if (!msg && event?.text) {
-        console.log(
-          `[pipal-a2a] 📨 direct text: ${String(event.text).slice(0, 80)}`
-        );
-      }
+      const contentLen = typeof msg?.content === "string" ? msg.content.length
+        : Array.isArray(msg?.content) ? `array:${msg.content.length}`
+        : typeof msg?.content;
+      console.log(`[pipal-a2a] 📨 message_update: role=${role} content=${contentLen} task=${currentDelegatedTaskId?.slice(0, 8) ?? "none"}`);
     }
 
+    if (!currentDelegatedTaskId) return;
+
     try {
-      // Try multiple event shapes
+      const msg = event?.message;
       let captured = "";
 
-      // Shape 1: event.message.role === "assistant", content = string
-      const msg = event?.message;
-      if (msg?.role === "assistant" && msg?.content) {
-        if (typeof msg.content === "string") captured = msg.content;
-        else if (Array.isArray(msg.content)) {
+      // Capture any content from event.message (any role)
+      if (msg?.content) {
+        if (typeof msg.content === "string" && msg.content.length > 0) {
+          captured = msg.content;
+        } else if (Array.isArray(msg.content)) {
           captured = msg.content
             .filter((b: any) => b.type === "text" && b.text)
             .map((b: any) => b.text)
@@ -255,19 +237,8 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      // Shape 2: event.message without role, or role !== "assistant"
-      if (!captured && msg?.content && currentDelegatedTaskId) {
-        if (typeof msg.content === "string" && msg.content.length > 0) captured = msg.content;
-        else if (Array.isArray(msg.content)) {
-          captured = msg.content
-            .filter((b: any) => b.type === "text" && b.text)
-            .map((b: any) => b.text)
-            .join("\n");
-        }
-      }
-
-      // Shape 3: event.content directly (no message wrapper)
-      if (!captured && event?.content && !msg) {
+      // Fallback: event.content directly
+      if (!captured && event?.content) {
         if (typeof event.content === "string") captured = event.content;
         else if (Array.isArray(event.content)) {
           captured = event.content
@@ -277,12 +248,12 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      // Shape 4: event.text directly
+      // Fallback: event.text directly
       if (!captured && event?.text && typeof event.text === "string") {
         captured = event.text;
       }
 
-      if (captured && currentDelegatedTaskId) {
+      if (captured) {
         lastAssistantText = captured;
         console.log(`[pipal-a2a] 🔵 captured: ${captured.length} chars`);
         resetQuiescenceTimer();
@@ -347,6 +318,7 @@ export default function (pi: ExtensionAPI) {
     console.log(`[pipal-a2a] 📩 Delegated task from ${task.from}: "${task.task.slice(0, 60)}..."`);
     currentDelegatedTaskId = task.id;
     lastAssistantText = "";
+    console.log(`[pipal-a2a] 🔒 taskId set to ${currentDelegatedTaskId.slice(0, 8)}, about to sendUserMessage`);
 
     const taskMessage =
       `[Delegated task from ${task.from}]:\n\n${task.task}\n\n` +
@@ -354,7 +326,9 @@ export default function (pi: ExtensionAPI) {
 
     try {
       pi.sendUserMessage(taskMessage);
+      console.log(`[pipal-a2a] ✅ sendUserMessage called, taskId still ${currentDelegatedTaskId?.slice(0, 8) ?? "null"}`);
     } catch (error) {
+      console.error(`[pipal-a2a] ❌ sendUserMessage FAILED:`, error);
       await client.postError(task.id, `Failed to inject task: ${error}`);
       currentDelegatedTaskId = null;
     }
