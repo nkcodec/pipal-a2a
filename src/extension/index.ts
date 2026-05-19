@@ -163,31 +163,82 @@ export default function (pi: ExtensionAPI) {
 
   // ───────────────────────────────────────────────────────────────
   // Capture LLM responses for delegated tasks
+  // Strategy: capture streaming text from message_update,
+  // then use agent_end event.messages as the authoritative source.
   // ───────────────────────────────────────────────────────────────
   pi.on("message_update", (event: any) => {
-    // Pi docs: message_update provides event.message with role + content
-    const msg = event?.message;
-    if (msg?.role === "assistant" && msg?.content) {
-      lastAssistantText = typeof msg.content === "string"
-        ? msg.content
-        : JSON.stringify(msg.content);
+    // Pi docs: message_update fires during assistant streaming
+    // event.message has { role, content } where content can be string or array
+    try {
+      const msg = event?.message;
+      if (msg?.role === "assistant") {
+        const content = msg.content;
+        if (typeof content === "string" && content.length > 0) {
+          lastAssistantText = content;
+        } else if (Array.isArray(content)) {
+          // Content blocks: [{ type: "text", text: "..." }, ...]
+          const texts = content
+            .filter((b: any) => b.type === "text" && b.text)
+            .map((b: any) => b.text);
+          if (texts.length > 0) {
+            lastAssistantText = texts.join("\n");
+          }
+        }
+      }
+    } catch {
+      // Non-critical — streaming updates are best-effort
     }
   });
 
-  pi.on("agent_end", async () => {
-    if (currentDelegatedTaskId && client) {
-      const taskId = currentDelegatedTaskId;
-      const resultText = lastAssistantText || "Task completed";
-      currentDelegatedTaskId = null;
-      lastAssistantText = "";
+  pi.on("agent_end", async (event: any) => {
+    if (!currentDelegatedTaskId || !client) return;
 
-      try {
-        await client.postResult(taskId, resultText);
-        console.log(`[pipal-a2a] 📤 Result posted for task ${taskId.slice(0, 8)}`);
-      } catch (error) {
-        console.error(`[pipal-a2a] Failed to post result:`, error);
-        try { await client.postError(taskId, String(error)); } catch {}
+    const taskId = currentDelegatedTaskId;
+    currentDelegatedTaskId = null;
+
+    // Pi docs: agent_end provides event.messages — all messages from this prompt
+    // Use this as the authoritative source, falling back to streaming capture
+    let resultText = "";
+
+    try {
+      const messages = event?.messages;
+      if (Array.isArray(messages) && messages.length > 0) {
+        // Find the last assistant message
+        const assistantMsgs = messages.filter(
+          (m: any) => m.role === "assistant"
+        );
+        const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+        
+        if (lastAssistant?.content) {
+          const content = lastAssistant.content;
+          if (typeof content === "string") {
+            resultText = content;
+          } else if (Array.isArray(content)) {
+            resultText = content
+              .filter((b: any) => b.type === "text" && b.text)
+              .map((b: any) => b.text)
+              .join("\n");
+          }
+        }
       }
+    } catch {
+      // Fall through to streaming capture
+    }
+
+    // Fallback to streaming capture if agent_end didn't have messages
+    if (!resultText) {
+      resultText = lastAssistantText || "Task completed";
+    }
+    lastAssistantText = "";
+
+    console.log(`[pipal-a2a] 📤 Posting result for task ${taskId.slice(0, 8)} (${resultText.length} chars)`);
+
+    try {
+      await client.postResult(taskId, resultText);
+      console.log(`[pipal-a2a] ✅ Result posted for task ${taskId.slice(0, 8)}`);
+    } catch (error) {
+      console.error(`[pipal-a2a] ❌ Failed to post result:`, error);
+      try { await client.postError(taskId, String(error)); } catch {}
     }
   });
 
