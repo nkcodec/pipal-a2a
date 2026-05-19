@@ -26,10 +26,8 @@ import { load } from "js-yaml";
 import { resolve } from "path";
 import {
   createAgentCard,
-  createTask,
   createSkill,
   type AgentCard,
-  type Task,
   type AgentSkill,
 } from "../core/types.js";
 import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
@@ -368,37 +366,50 @@ export default function (pi: ExtensionAPI) {
       }
 
       try {
-        // Create a Google A2A Task for routing decisions
-        const routingTask = createTask(crypto.randomUUID(), "TASK_STATE_SUBMITTED", {
-          metadata: { skill: params.skill, to: params.to },
-        });
+        // Route using shared state (not local registry — SSE may miss events)
+        const onlineAgents = await client.listAgents();
+        const others = onlineAgents.filter((a: AgentCard) => a.name !== card!.name);
 
-        const targetCard = await router.route(routingTask);
+        let targetCard: AgentCard | undefined;
+
+        // Direct routing — target agent specified by name
+        if (params.to) {
+          targetCard = others.find((a: AgentCard) => a.name === params.to);
+          if (!targetCard) {
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Agent "${params.to}" not found. Online: ${others.map((a: AgentCard) => a.name).join(", ") || "none"}`,
+              }],
+              details: { error: "not_found" },
+            };
+          }
+        }
+
+        // Skill-based routing
+        if (!targetCard && params.skill) {
+          const matches = others.filter((a: AgentCard) =>
+            a.skills.some((s) => s.id === params.skill)
+          );
+          if (matches.length > 0) targetCard = matches[0];
+        }
+
+        // Fallback — pick first available other agent
+        if (!targetCard && others.length > 0) {
+          targetCard = others[0];
+        }
 
         if (!targetCard) {
-          const agents = await client.listAgents();
-          const agentList = agents.length > 0
-            ? agents.map((a) => `${a.name} [${a.skills.map((s) => s.id).join(", ")}]`).join(", ")
-            : "none";
           return {
             content: [{
               type: "text" as const,
-              text: `No agent available${params.skill ? ` with skill "${params.skill}"` : ""}.\nOnline: ${agentList}`,
+              text: `No other agent available. Online: ${onlineAgents.map((a: AgentCard) => a.name).join(", ") || "none"}`,
             }],
             details: { error: "no_agent" },
           };
         }
 
-        if (targetCard.name === card.name) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: "Cannot delegate to yourself. Others: " +
-                (await client.listAgents()).filter((a) => a.name !== card!.name).map((a) => a.name).join(", ") || "none",
-            }],
-            details: { error: "self_delegate" },
-          };
-        }
+        console.log(`[pipal-a2a] 🎯 Routing to ${targetCard.name} (online: ${onlineAgents.map((a: AgentCard) => a.name).join(", ")})`);
 
         // Submit task to shared state
         const taskId = await client.createTask({
