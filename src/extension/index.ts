@@ -359,9 +359,9 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
     promptGuidelines: [
       "IMPORTANT: Always use pipal_a2a_delegate (not subagents) when delegating to another agent terminal.",
-      "Use pipal_a2a_delegate when the user wants to send work to another terminal/agent.",
-      "Specify skill to route to the right agent: planning, code-generation, security-review, frontend-implementation, backend-implementation.",
-      "Specify to to send directly to a named agent (e.g. to='backend').",
+      "Use pipal_a2a_delegate when task keywords match other agents' skills (e.g., 'node.js' → backend, 'react' → frontend).",
+      "Delegate to specialists — do NOT handle implementation tasks yourself unless the task is trivial.",
+      "When in doubt: delegate. Specialists do better work than generalists.",
       "You can call pipal_a2a_delegate multiple times for parallel work across terminals.",
     ],
     parameters: Type.Object({
