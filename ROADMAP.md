@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.1.1 shipped** — 35 commits on `master`. JSON-RPC 2.0 binding at POST /rpc.
+> **v0.1.2 next** — 38 commits on `master`. JSON-RPC 2.0 at POST /rpc shipped. Streaming in progress.
 
 ---
 
@@ -10,7 +10,7 @@
 
 ```
 v0.1.0  ← current (core types + shared state + extension + tests)
-v0.1.1  ← shipped: JSON-RPC 2.0 at POST /rpc ✅
+v0.1.1  ← shipped: JSON-RPC 2.0 at POST /rpc ✅  (35 commits)
 v0.1.2  ← streaming (SendStreamingMessage)
 v0.1.3  ← multi-turn (contextId)
 v0.1.4  ← auth (API Key)
@@ -117,7 +117,7 @@ Align transport with Google A2A spec §9 (JSON-RPC 2.0).
 
 ---
 
-## v0.1.2 — Streaming
+## v0.1.2 — Streaming ⏳ (in progress)
 
 Implement `SendStreamingMessage` (Google A2A spec §3.1.2).
 
