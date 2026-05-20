@@ -23,6 +23,7 @@ v0.2.0  ← essential A2A v1.0 features ✅
 v0.2.1  ← security hardening (Tier 1 fixes) ✅
 v0.2.2  ← infrastructure reliability (Tier 2 fixes) ✅
 v0.2.3  ← role reference pattern (DRY refactor) ✅
+v0.2.4  ← .env file support (secrets out of git) ✅
 v0.3.0  ← = "v1.0" — full Google A2A spec compliance
 ```
 
@@ -316,6 +317,28 @@ but team.yaml defined tags. SmartRouter couldn't route correctly.
 
 **Precedence:** PIPAL_ROLE env → pipal-a2a.yaml role → team.yaml → identity block (legacy)
 **Files:** config/pipal-a2a.yaml, src/extension/index.ts
+**Tests:** 98 passed, 0 failed
+
+---
+
+## v0.2.4 — .env File Support (Secrets Out of Git) ✅ SHIPPED
+
+Per karpathy-clean-code: Simplicity first. Zero new dependencies.
+
+**Problem:** apiKey secret was stored in pipal-a2a.yaml, which is committed to git.
+Secrets should not be in version control. Per-project isolation needed.
+
+**Solution:** Zero-dependency .env loader. Secrets in .env (gitignored), not in YAML config.
+
+**Changes:**
+- [x] Added `loadEnvFile()` — manual .env parser, no npm packages
+- [x] Called at start of `loadConfig()` before any config resolution
+- [x] Created `.env` with `PIPAL_API_KEY=secret123`
+- [x] Removed `apiKey` from `pipal-a2a.yaml`
+- [x] `.gitignore` already had `.env` — no change needed
+
+**Precedence:** env var (external) → .env file → pipal-a2a.yaml apiKey → no auth
+**Files:** src/extension/index.ts, config/pipal-a2a.yaml, .env (new)
 **Tests:** 98 passed, 0 failed
 
 ---

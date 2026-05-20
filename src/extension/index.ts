@@ -51,7 +51,32 @@ interface ExtensionConfig {
   apiKey?: string;
 }
 
+function loadEnvFile(): void {
+  const envPath = resolve(process.cwd(), ".env");
+  try {
+    const content = readFileSync(envPath, "utf8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex === -1) continue;
+      const key = trimmed.slice(0, eqIndex).trim();
+      let value = trimmed.slice(eqIndex + 1).trim();
+      // Strip surrounding quotes
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (key && !process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // No .env file — that's fine
+  }
+}
+
 function loadConfig(): ExtensionConfig {
+  loadEnvFile(); // Load .env into process.env BEFORE any config resolution
   let config: ExtensionConfig = {
     sharedState: "http://localhost:5000",
     identity: {
