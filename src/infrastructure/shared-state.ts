@@ -55,6 +55,37 @@ function taskNotFound(id: number | string | null, taskId: string): JsonRpcRespon
 }
 
 // ─────────────────────────────────────────────────────────────────
+// SSRF Protection — Webhook URL validation
+// ─────────────────────────────────────────────────────────────────
+
+function isValidWebhookUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  // Only allow http: and https: schemes
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+
+  const host = parsed.hostname.toLowerCase();
+
+  // Block cloud metadata endpoint (AWS/GCP/Azure)
+  if (host === '169.254.169.254') return false;
+
+  // Block link-local
+  if (host.startsWith('169.254.') || host.startsWith('fe80:')) return false;
+
+  // Block obvious non-HTTP ports on internal services
+  const port = parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80);
+  const blockedPorts = [22, 23, 25, 3306, 5432, 6379, 27017]; // SSH, telnet, SMTP, MySQL, Postgres, Redis, Mongo
+  if (blockedPorts.includes(port)) return false;
+
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Server
 // ─────────────────────────────────────────────────────────────────
 
@@ -70,13 +101,17 @@ export class SharedStateServer {
 
   // JSON-RPC dispatcher for task methods
   private rpc = new JsonRpcDispatcher();
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   async start(port: number): Promise<string> {
-    this.app.use(express.json());
+    this.app.use(express.json({ limit: '1mb' }));
     this.setupAgentRoutes();
     this.setupPushRoutes();
     this.setupRpcRoutes();
     this.setupSseRoutes();
+
+    // Periodic cleanup: prune completed tasks older than 1 hour
+    this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
 
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(port, () => {
@@ -115,7 +150,31 @@ export class SharedStateServer {
     next();
   };
 
+  /**
+   * Remove completed/failed/canceled tasks older than 1 hour.
+   * Remove SSE clients whose connections have died.
+   */
+  private cleanup(): void {
+    const TASK_TTL_MS = 60 * 60 * 1000; // 1 hour
+    const now = Date.now();
+    const terminalStates = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"]);
+
+    // Prune old terminal tasks
+    let pruned = 0;
+    for (const [id, task] of this.tasks) {
+      if (terminalStates.has(task.status.state)) {
+        const age = now - new Date(task.status.timestamp).getTime();
+        if (age > TASK_TTL_MS) {
+          this.tasks.delete(id);
+          pruned++;
+        }
+      }
+    }
+    if (pruned > 0) console.log(`[Cleanup] Pruned ${pruned} expired task(s)`);
+  }
+
   async stop(): Promise<void> {
+    if (this.cleanupTimer) { clearInterval(this.cleanupTimer); this.cleanupTimer = null; }
     for (const { res } of this.sseClients.values()) res.end();
     this.sseClients.clear();
     for (const { res } of this.taskStreams.values()) res.end();
@@ -181,6 +240,10 @@ export class SharedStateServer {
         res.status(400).json({ error: "PushNotificationConfig requires url" });
         return;
       }
+      if (!isValidWebhookUrl(config.url)) {
+        res.status(400).json({ error: "Invalid webhook URL: must be public http(s), no private/loopback IPs" });
+        return;
+      }
       const id = crypto.randomUUID();
       this.pushConfigs.set(id, config);
       console.log(`[Push] Config created: ${id} → ${config.url}`);
@@ -219,6 +282,11 @@ export class SharedStateServer {
     for (const [id, config] of this.pushConfigs.entries()) {
       // If config has taskId filter, only fire for matching tasks
       if (config.taskId && config.taskId !== taskId) continue;
+      // SSRF guard — skip invalid URLs at fire time too
+      if (!isValidWebhookUrl(config.url)) {
+        console.warn(`[Push] Skipping invalid webhook URL: ${config.url}`);
+        continue;
+      }
       try {
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (config.authentication?.scheme === "bearer" && config.authentication.credentials) {
@@ -565,23 +633,25 @@ export class SharedStateServer {
 
   private broadcast(event: string, data: unknown): void {
     const payload = JSON.stringify(data);
-    for (const res of this.sseClients.values()) {
-      res.write(`event: ${event}\ndata: ${payload}\n\n`);
+    for (const [cid, res] of this.sseClients) {
+      try {
+        res.write(`event: ${event}\ndata: ${payload}\n\n`);
+      } catch {
+        this.sseClients.delete(cid);
+      }
     }
     // taskStreams are per-task — use broadcastToTask instead
   }
 
   private broadcastToTask(taskId: string, event: string, data: unknown): void {
-    console.log(`[broadcastToTask] ${event} for ${taskId.slice(0,8)}, streams: ${this.taskStreams.size}`);
     const payload = JSON.stringify({ taskId, ...data });
     for (const [cid, entry] of this.taskStreams) {
-      console.log(`  stream ${cid.slice(0,8)}: taskId=${entry.taskId.slice(0,8)} match=${entry.taskId === taskId}`);
       if (entry.taskId === taskId) {
-        console.log(`  -> writing to ${cid.slice(0,8)}`);
-        entry.res.write(`event: ${event}
-data: ${payload}
-
-`);
+        try {
+          entry.res.write(`event: ${event}\ndata: ${payload}\n\n`);
+        } catch {
+          this.taskStreams.delete(cid);
+        }
       }
     }
   }

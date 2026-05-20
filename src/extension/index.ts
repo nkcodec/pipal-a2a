@@ -174,14 +174,22 @@ export default function (pi: ExtensionAPI) {
     const isHost = !(await client.isReachable());
 
     if (isHost) {
-      server = new SharedStateServer();
-      await server.start(parsedPort);
-      if (config.apiKey) {
-        server.addApiKey(config.apiKey);
-        console.log(`[pipal-a2a] 🔐 Auth enabled — API key required`);
+      try {
+        server = new SharedStateServer();
+        await server.start(parsedPort);
+        if (config.apiKey) {
+          server.addApiKey(config.apiKey);
+          console.log(`[pipal-a2a] 🔐 Auth enabled — API key required`);
+        }
+        console.log(`[pipal-a2a] 🏠 HOST mode — shared state at ${sharedStateUrl}`);
+      } catch (err: any) {
+        if (err.code === 'EADDRINUSE') {
+          console.log(`[pipal-a2a] ⚠️  Server already running at ${sharedStateUrl} — joining instead`);
+          server = null;
+        } else throw err;
       }
-      console.log(`[pipal-a2a] 🏠 HOST mode — shared state at ${sharedStateUrl}`);
-    } else {
+    }
+    if (!server) {
       console.log(`[pipal-a2a] 🔗 JOIN mode — connecting to ${sharedStateUrl}`);
     }
 

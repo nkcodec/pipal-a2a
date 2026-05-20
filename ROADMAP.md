@@ -21,7 +21,7 @@ v0.1.8  ← gRPC binding → Future Ideas
 v0.1.9  ← OAuth2 + extended agent card → Future Ideas
 v0.2.0  ← essential A2A v1.0 features ✅
 v0.2.1  ← security hardening (Tier 1 fixes) ✅
-v0.2.2  ← infrastructure reliability (Tier 2 fixes)
+v0.2.2  ← infrastructure reliability (Tier 2 fixes) ✅
 v0.3.0  ← = "v1.0" — full Google A2A spec compliance
 ```
 
@@ -289,10 +289,12 @@ Tier 1 critical + high fixes. Karpathy-clean-code principle: protect the frozen 
 
 Tier 2 fixes — reliability bugs that don't corrupt core but crash the system or leak data.
 
-- [ ] H-1: TOCTOU race in HOST/JOIN detection → add try/catch fallback for `EADDRINUSE`
-- [ ] C-4: Unbounded memory growth → TTL-based task cleanup + SSE liveness check
-- [ ] H-2: No request body size limit → `express.json({ limit: '1mb' })`
-- [ ] C-2: SSRF via push notification webhooks → URL allowlist + block RFC 1918
+- [x] H-1: TOCTOU race in HOST/JOIN detection → try/catch fallback for `EADDRINUSE`
+- [x] C-4: Unbounded memory growth → TTL-based task cleanup + SSE liveness check
+- [x] H-2: No request body size limit → `express.json({ limit: '1mb' })`
+- [x] C-2: SSRF via push notification webhooks → URL validation + block cloud metadata/internal ports
+
+---
 
 ---
 
