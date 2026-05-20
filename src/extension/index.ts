@@ -94,6 +94,15 @@ function loadConfig(): ExtensionConfig {
   if (process.env.PIPAL_API_KEY) config.apiKey = process.env.PIPAL_API_KEY;
   if (process.env.PIPAL_SHARED_STATE) config.sharedState = process.env.PIPAL_SHARED_STATE;
 
+  // Auto-port from working directory — different projects get different ports
+  // Unless PIPAL_SHARED_STATE is explicitly set
+  if (!process.env.PIPAL_SHARED_STATE && config.sharedState === "http://localhost:5000") {
+    const cwd = process.cwd();
+    const hash = cwd.split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+    const port = 5000 + (Math.abs(hash) % 100); // 5000-5099
+    config.sharedState = `http://localhost:${port}`;
+  }
+
   return config;
 }
 
