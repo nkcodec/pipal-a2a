@@ -11,11 +11,10 @@
 # Shared state rendezvous URL
 # First terminal auto-starts the server here, others connect to it.
 sharedState: http://localhost:5000
+apiKey: secret123
 
-# This terminal's identity in the agent network
-identity:
-  name: planner
-  description: "Plans tasks and delegates to specialized workers"
-  skills:
-    - planning
-    - delegation
+# This terminal's role — resolved from team.yaml at startup.
+# The role defines name, skills, tags, and description.
+# Override with PIPAL_ROLE=<role> env var.
+# Legacy: use identity block instead of role for backward compat.
+role: planner

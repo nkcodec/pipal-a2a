@@ -22,6 +22,7 @@ v0.1.9  ← OAuth2 + extended agent card → Future Ideas
 v0.2.0  ← essential A2A v1.0 features ✅
 v0.2.1  ← security hardening (Tier 1 fixes) ✅
 v0.2.2  ← infrastructure reliability (Tier 2 fixes) ✅
+v0.2.3  ← role reference pattern (DRY refactor) ✅
 v0.3.0  ← = "v1.0" — full Google A2A spec compliance
 ```
 
@@ -295,6 +296,27 @@ Tier 2 fixes — reliability bugs that don't corrupt core but crash the system o
 - [x] C-2: SSRF via push notification webhooks → URL validation + block cloud metadata/internal ports
 
 ---
+
+## v0.2.3 — Role Reference Pattern (DRY Refactor) ✅ SHIPPED
+
+Per karpathy-clean-code: Config activates, not defines. Single source of truth.
+
+**Problem:** Identity data (name, skills, tags) was duplicated in 3 places (pipal-a2a.yaml, team.yaml, env vars).
+This caused a real bug: planner agent had no tags because pipal-a2a.yaml didn't set them,
+but team.yaml defined tags. SmartRouter couldn't route correctly.
+
+**Solution:** `team.yaml` is now the single source of truth. `pipal-a2a.yaml` just references a role name.
+
+**Changes:**
+- [x] `pipal-a2a.yaml`: identity block replaced with `role: planner` (1 line)
+- [x] `loadConfig()`: resolves role from team.yaml before env var overrides
+- [x] New `PIPAL_ROLE` env var: overrides file role, resolves from team.yaml
+- [x] `/pipal-role` command: updates `config.role` for consistency
+- [x] Backward compat: old-style `identity:` block still works
+
+**Precedence:** PIPAL_ROLE env → pipal-a2a.yaml role → team.yaml → identity block (legacy)
+**Files:** config/pipal-a2a.yaml, src/extension/index.ts
+**Tests:** 98 passed, 0 failed
 
 ---
 

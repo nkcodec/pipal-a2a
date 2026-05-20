@@ -41,6 +41,7 @@ import { SmartRouter } from "../builtin/smart-router.js";
 
 interface ExtensionConfig {
   sharedState: string;
+  role?: string;
   identity: {
     name: string;
     description?: string;
@@ -76,7 +77,27 @@ function loadConfig(): ExtensionConfig {
     }
   }
 
-  // Environment variables override config file
+  // PIPAL_ROLE env var overrides config file role
+  if (process.env.PIPAL_ROLE) {
+    config.role = process.env.PIPAL_ROLE;
+  }
+
+  // Resolve role from team.yaml — sets identity fields (name, skills, tags, description)
+  // Precedence: role field (file or PIPAL_ROLE env) → team.yaml lookup → identity fallback
+  if (config.role) {
+    const roles = loadTeamRoles();
+    const role = roles.get(config.role);
+    if (role) {
+      config.identity.name = role.name;
+      config.identity.skills = role.skills;
+      config.identity.tags = role.tags || [];
+      config.identity.description = role.description;
+    } else {
+      console.warn(`[pipal-a2a] Role "${config.role}" not found in team.yaml`);
+    }
+  }
+
+  // Environment variables override individual identity fields (backward compat)
   if (process.env.PIPAL_NAME) config.identity.name = process.env.PIPAL_NAME;
   if (process.env.PIPAL_SKILLS) {
     config.identity.skills = process.env.PIPAL_SKILLS
@@ -786,6 +807,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Update config
+      config.role = roleName;
       config.identity.name = role.name;
       config.identity.description = role.description;
       config.identity.skills = role.skills;
