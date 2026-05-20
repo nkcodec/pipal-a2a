@@ -336,6 +336,26 @@ Implementation:
 - Config: `responseFormat: "structured"` per role
 - No protocol changes — just better formatting
 
+### Auto-Role Assignment — Team topology from well-known discovery
+
+Terminal compares `config/team.yaml` (expected) vs `/.well-known/agent-card.json` (actual).
+Auto-assigns first missing role. No env vars needed.
+
+Per karpathy-clean-code: YAGNI. Most projects need 2-3 agents max. Manual env vars are simpler.
+
+```
+Terminal 1 starts → discovers no agents → auto-assigns HOST + first role (backend)
+Terminal 2 starts → discovers backend → auto-assigns frontend
+Terminal 3 starts → discovers backend + frontend → auto-assigns planner
+```
+
+Implementation:
+- Extension reads `config/team.yaml` on startup
+- Calls `client.discover()` to find online agents
+- Compares expected vs actual roles
+- Auto-assigns first missing role (name, skills, tags)
+- Only build when manual env vars become painful for 5+ terminal teams
+
 ---
 
 ## Success Criteria
