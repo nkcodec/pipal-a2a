@@ -39,6 +39,8 @@ import { SmartRouter } from "../builtin/smart-router.js";
 // Config
 // ─────────────────────────────────────────────────────────────────
 
+let rolesLoaded = false;  // Prevent repeated team.yaml warnings
+
 interface ExtensionConfig {
   sharedState: string;
   role?: string;
@@ -92,14 +94,20 @@ function loadConfig(): ExtensionConfig {
     resolve(process.env.HOME || "~", ".pi/config/pipal-a2a.yaml"),
   ];
 
+  let configFileFound = false;
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
       config = load(content, { schema: DEFAULT_SAFE_SCHEMA }) as ExtensionConfig;
+      configFileFound = true;
       break;
     } catch {
       continue;
     }
+  }
+  if (!configFileFound) {
+    console.warn(`[pipal-a2a] ⚠️  No config/pipal-a2a.yaml found. Using defaults (random name, no skills).`);
+    console.warn(`[pipal-a2a]    Create config/pipal-a2a.yaml for best experience. See README for setup.`);
   }
 
   // PIPAL_ROLE env var overrides config file role
@@ -166,6 +174,7 @@ function loadTeamRoles(): Map<string, TeamRole> {
     resolve(process.cwd(), "team.yaml"),
     resolve(process.env.HOME || "~", ".pi/config/team.yaml"),
   ];
+  let teamFileFound = false;
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
@@ -181,10 +190,15 @@ function loadTeamRoles(): Map<string, TeamRole> {
           });
         }
       }
+      teamFileFound = true;
       break;
     } catch {
       continue;
     }
+  }
+  if (!teamFileFound && !rolesLoaded) {
+    console.warn(`[pipal-a2a] ⚠️  No config/team.yaml found. Role resolution and /pipal-role will not work.`);
+    rolesLoaded = true;
   }
   return roles;
 }
