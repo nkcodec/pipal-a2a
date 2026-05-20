@@ -1,121 +1,91 @@
 # PiPal-A2A
 
-**Each pi terminal IS an agent.** P2P multi-agent orchestration via Google A2A v1.0 — watch real pi sessions collaborate in real-time.
+**P2P multi-agent orchestration for [pi](https://github.com/earendilworks/pi-coding-agent) — each terminal IS an agent.**
 
-> **v0.1.4 shipped** — 49 commits on `master`. API key auth. Multi-turn. Streaming. JSON-RPC 2.0.
-
-## What is PiPal-A2A?
-
-A **pi extension** that turns every pi terminal into a node in a P2P agent network. Open multiple terminals, give each a role (planner, coder, reviewer), and watch them collaborate — you see each agent thinking, writing code, and running tools in real-time.
-
-**Core sentence:** Route tasks to specialized LLM agents via P2P delegation and return results.
-
-**Protocol:** [Google A2A v1.0](https://github.com/google/A2A) data model — `AgentCard`, `Task`, `Message`, `Artifact`, `Part`, `TaskState`.
-
-## How It Works
+Turn multiple pi terminals into a coordinated agent team. No central server, no message queue — just terminals talking to each other via the Google A2A v1.0 protocol.
 
 ```
-Terminal 1 (frontend)            Terminal 2 (backend)              Terminal 3 (planner)
-┌──────────────────────┐         ┌──────────────────────┐         ┌──────────────────────┐
-│ $ pi                 │         │ $ pi                 │         │ $ pi                 │
-│                      │         │                      │         │                      │
-│ You: "Build a todo  │         │ You see nothing yet  │         │ You see nothing yet  │
-│ app"                │         │                      │         │                      │
-│                      │         │                      │         │                      │
-│ LLM: decides to      │  task   │ 📩 Delegated task    │         │                      │
-│ delegate to backend  │───────►│ from frontend:       │         │                      │
-│ (skill match)        │         │ "Build REST API"     │         │                      │
-│                      │         │                      │         │                      │
-│ ⏳ Waiting for       │         │ LLM: writes server,  │  done   │                      │
-│ backend result...    │         │ runs npm, tests      │─────────│                      │
-│                      │         │ (you see all in      │         │                      │
-│                      │         │ real-time)           │         │                      │
-│                      │◄────────│                      │         │                      │
-│ LLM: Got API done.  │         │                      │         │                      │
-│ Building UI now...   │         │                      │         │                      │
-│                      │         │                      │         │                      │
-│ LLM: writes React   │         │                      │         │                      │
-│ components, runs     │         │                      │         │                      │
-│ npm build            │         │                      │         │                      │
-│                      │         │                      │         │                      │
-│ ✅ Todo app done.    │         │                      │         │                      │
-│ Backend + Frontend  │         │                      │         │                      │
-│ both complete.       │         │                      │         │                      │
-└──────────────────────┘         └──────────────────────┘         └──────────────────────┘
+Terminal 1 (planner):  "Build me a todo app"
+  └─→ delegates to backend + frontend
+Terminal 2 (backend):  builds the API
+Terminal 3 (frontend): builds the UI
+  └─→ results flow back to planner
 ```
-
-**Auto-Router (v0.1.7):** Agents delegate automatically by tag — no human telling whom to delegate to.
-
 
 ## Quick Start
 
-### 1. Install the extension
+### 1. Install
 
 ```bash
-pi install ./pipal-a2a
+cd your-project
+npm install pipal-a2a
 ```
 
-### 2. Open Terminal 1 (planner) — auto-starts the network
+### 2. Open terminals
+
+Each terminal gets an identity via environment variables:
 
 ```bash
-PIPAL_NAME=planner PIPAL_SKILLS=planning,delegation pi
+# Terminal 1 — planner (first terminal auto-starts the network)
+PIPAL_NAME=planner PIPAL_SKILLS=planning,delegation PIPAL_TAGS=plan,architecture pi
+
+# Terminal 2 — backend
+PIPAL_NAME=backend PIPAL_SKILLS=code-generation,backend-implementation PIPAL_TAGS=node.js,api pi
+
+# Terminal 3 — frontend
+PIPAL_NAME=frontend PIPAL_SKILLS=frontend-implementation PIPAL_TAGS=react,css,ui pi
 ```
 
-You'll see:
+### 3. Delegate tasks
+
+In the planner terminal:
+
 ```
-[pipal-a2a] 🏠 HOST mode — shared state at http://localhost:5000
-[pipal-a2a] ✅ Online as "planner" [planning, delegation]
+> "Build me a REST API with JWT auth"
 ```
 
-### 3. Open Terminal 2 (backend worker) — joins the network
+The LLM automatically:
+1. Checks `pipal_a2a_agents()` — sees who's online
+2. Checks `pipal_a2a_my_card()` — knows its own role
+3. Calls `pipal_a2a_delegate(to="backend", task="...")` — delegates to the right agent
+
+The backend terminal receives the task, processes it, and sends the result back. You see it all happen in real-time.
+
+## Tools
+
+PiPal-A2A registers 4 tools in your pi session:
+
+| Tool | What |
+|------|------|
+| `pipal_a2a_delegate(task, to?, skill?)` | Send a task to another agent |
+| `pipal_a2a_agents()` | List all online agents |
+| `pipal_a2a_my_card()` | Show your own agent card |
+| `pipal_a2a_status()` | Check network health |
+
+## Project Isolation
+
+**Different projects = different networks.** Auto-detected from your working directory.
 
 ```bash
-PIPAL_NAME=backend PIPAL_SKILLS=code-generation,backend-implementation pi
+cd ~/projects/todo-app && pi     → port 5016 (todo-app agents only)
+cd ~/projects/weather-app && pi  → port 5006 (weather-app agents only)
 ```
 
-You'll see:
-```
-[pipal-a2a] 🔗 JOIN mode — connecting to http://localhost:5000
-[pipal-a2a] ✅ Online as "backend" [code-generation, backend-implementation]
-```
+Override: `PIPAL_SHARED_STATE=http://localhost:5500 pi`
 
-And Terminal 1 prints:
-```
-[pipal-a2a] 👋 backend joined the network
-```
+## Auth
 
-### 4. Open Terminal 3 (security reviewer) — joins too
+Optional API key for your network:
 
 ```bash
-PIPAL_NAME=reviewer PIPAL_SKILLS=security-review,code-review pi
+PIPAL_API_KEY=secret123 pi    # All terminals must use the same key
 ```
 
-All terminals now show:
-```
-/pipal-status
-# 3 agent(s) online (A2A v1.0):
-#   → planner: [planning, delegation] (you) JSONRPC
-#     backend: [code-generation, backend-implementation]
-#     reviewer: [security-review, code-review]
-```
+Without `PIPAL_API_KEY` — open network (fine for local dev).
 
-### 5. Delegate tasks!
+## Config File
 
-In Terminal 1:
-```
-> "Build me a login API with JWT auth, then review it for security"
-```
-
-The LLM calls `pipal_a2a_delegate()`:
-- **Terminal 2** receives: `📩 Delegated task from planner: "Implement login API with JWT auth"`
-  - You **see** the LLM reading files, writing code, running tests — **in real-time**
-- **Terminal 3** receives: `📩 Delegated task from planner: "Review for security"`
-  - You **see** the LLM analyzing code, finding vulnerabilities — **in real-time**
-- **Terminal 1** receives the results and continues the conversation
-
-### Config file (alternative to env vars)
-
-Create `config/pipal-a2a.yaml` for defaults:
+Instead of env vars, create `config/pipal-a2a.yaml`:
 
 ```yaml
 sharedState: http://localhost:5000
@@ -127,217 +97,68 @@ identity:
     - delegation
 ```
 
-Environment variables always override the config file.
-
-### Environment Variables
-
-| Variable | What it sets | Example |
-|----------|-------------|---------|
-| `PIPAL_NAME` | Agent identity name | `PIPAL_NAME=planner` |
-| `PIPAL_SKILLS` | Comma-separated skill IDs | `PIPAL_SKILLS=code-generation,backend` |
-| `PIPAL_DESCRIPTION` | Agent description | `PIPAL_DESCRIPTION="Backend specialist"` |
-| `PIPAL_SHARED_STATE` | Shared state URL | `PIPAL_SHARED_STATE=http://localhost:5000` |
+Env vars always override the config file.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  CORE — Google A2A v1.0 Data Model (frozen)             │
-│  Task, TaskState, Message, Part, Artifact,               │
-│  AgentCard, AgentSkill, AgentCapabilities,               │
-│  AgentInterface, AgentProvider                           │
-│  Zero imports from other layers                          │
-└─────────────────────────────────────────────────────────┘
-                         ▲
-┌─────────────────────────────────────────────────────────┐
-│  SDK — Interfaces Only (zero implementation)             │
-│  AgentRegistry, TaskRouter, RoutingStrategy              │
-│  Re-exports all core types + factories                   │
-└─────────────────────────────────────────────────────────┘
-                         ▲
-┌─────────────────────────────────────────────────────────┐
-│  BUILTIN — Default Implementations                       │
-│  SmartRouter — routes by tag matching, LLM decides first │
-└─────────────────────────────────────────────────────────┘
-                         ▲
-┌─────────────────────────────────────────────────────────┐
-│  INFRASTRUCTURE — Real I/O                               │
-│  shared-state.ts — HTTP rendezvous server + SSE client   │
-│  Uses Task lifecycle: SUBMITTED → WORKING → COMPLETED    │
-└─────────────────────────────────────────────────────────┘
-                         ▲
-┌─────────────────────────────────────────────────────────┐
-│  APPLICATION — Flow Coordination (no business logic)     │
-│  registry.ts — local AgentCard tracking                  │
-│  router.ts — client-side task routing (Google A2A style) │
-└─────────────────────────────────────────────────────────┘
-                         ▲
-┌─────────────────────────────────────────────────────────┐
-│  EXTENSION — Pi Entry Point                              │
-│  pipal_a2a_delegate tool, /pipal-status command          │
-│  HOST/JOIN auto-detect, SSE subscription, delegation     │
-└─────────────────────────────────────────────────────────┘
+┌─────────────┐     ┌─────────────────────────┐     ┌─────────────┐
+│  Terminal 1  │────▶│   SharedStateServer     │◀────│  Terminal 2  │
+│  (planner)   │     │   (auto-started by      │     │  (backend)   │
+│              │◀────│    first terminal)       │────▶│              │
+└─────────────┘     │                         │     └─────────────┘
+                    │  • Agent registration   │
+                    │  • Task CRUD            │
+                    │  • SSE streaming         │
+                    │  • Push notifications   │
+                    │  • JSON-RPC 2.0         │
+                    │  • Well-known discovery │
+                    └─────────────────────────┘
 ```
 
-**Layer rules (dependency direction always downward):**
-- Core → imports nothing
-- SDK → imports Core types only
-- Builtin → imports SDK interfaces only
-- Infrastructure → imports SDK + Core
-- Application → imports SDK + Core + Builtin (never Infrastructure)
-- Extension → imports Application + Infrastructure (top-level wiring)
+**Clean architecture (karpathy-clean-code):**
 
-## Decision Flow (per karpathy-clean-code)
+| Layer | What | Changes |
+|-------|------|---------|
+| `src/core/` | Google A2A v1.0 types | Frozen — never touched |
+| `src/sdk/` | Public interfaces | Frozen — extensions use this |
+| `src/application/` | Registry, router | Rarely |
+| `src/infrastructure/` | HTTP, SSE, JSON-RPC | Per feature |
+| `src/extension/` | pi extension glue | Per feature |
 
-**LLM decides, router assists.** The LLM checks its own declared capabilities before delegating. SmartRouter is a fallback — called only when LLM can't decide.
+## Features
 
-```
-User: "build a todo app with node.js backend and react frontend"
-  │
-  ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  LLM — reads its own AgentCard                                    │
-│                                                                   │
-│  My card: skills=[frontend-implementation], tags=[react,ui]      │
-│                                                                   │
-│  "react frontend" → I have matching skill → HANDLE IT          │
-│  "node.js backend" → I lack backend skill → DELEGATE            │
-└──────────────────────────────────────────────────────────────────┘
-                     │                          │
-              [Handle it]              [DELEGATE tool]
-                                        │
-                                        ▼
-                              ┌──────────────────────┐
-                              │  SmartRouter (fallback)│
-                              │  Tag match: node.js   │
-                              │  → routes to backend  │
-                              └──────────────────────┘
-```
+| Feature | Status | Version |
+|---------|--------|---------|
+| JSON-RPC 2.0 binding | ✅ | v0.1.1 |
+| Streaming (SSE) | ✅ | v0.1.2 |
+| Multi-turn (contextId) | ✅ | v0.1.3 |
+| Auth (API key) | ✅ | v0.1.4 |
+| Well-known discovery | ✅ | v0.1.5 |
+| Push notifications (webhook) | ✅ | v0.1.6 |
+| Auto-Router (tag-based) | ✅ | v0.1.7 |
+| Project isolation (auto-port) | ✅ | v0.2.0 |
 
-**Why this is clean:**
-- LLM uses its own declared capabilities (no guessing)
-- SmartRouter only called when LLM needs help — not always
-- No excludeSelf hack — LLM won't delegate to itself
-- Tags are semantic: `node.js` → backend, `react` → frontend
+## Environment Variables
 
-**Per karpathy-clean-code:** Router is infrastructure, not the decision-maker. The LLM is the decision-maker.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PIPAL_NAME` | Recommended | Agent name (auto-generated if omitted) |
+| `PIPAL_SKILLS` | Recommended | Comma-separated skill IDs |
+| `PIPAL_TAGS` | Optional | Comma-separated tags for SmartRouter |
+| `PIPAL_DESCRIPTION` | Optional | Agent description |
+| `PIPAL_API_KEY` | Optional | Shared network API key |
+| `PIPAL_SHARED_STATE` | Optional | Override shared state URL (default: auto from cwd) |
 
-## File Structure
+## Development
 
-```
-pipal-a2a/
-├── src/
-│   ├── core/
-│   │   └── types.ts              # Google A2A v1.0 data model (frozen)
-│   ├── sdk/
-│   │   └── index.ts              # Public API — interfaces only
-│   ├── builtin/
-│   │   └── skill-matcher.ts      # Default routing strategy
-│   ├── infrastructure/
-│   │   └── shared-state.ts       # HTTP rendezvous server + SSE client
-│   ├── application/
-│   │   ├── registry.ts           # In-memory AgentCard registry
-│   │   ├── router.ts             # Client-side task routing
-│   │   └── network.ts            # Network type helpers
-│   ├── extension/
-│   │   └── index.ts              # pi extension entry point
-│   └── cli/
-│       └── index.ts              # Standalone shared state server
-├── config/
-│   └── pipal-a2a.yaml            # Per-terminal config
-├── tests/
-│   └── core.test.ts              # Layer 1: A2A spec compliance tests
-├── package.json                  # pi extension config
-├── tsconfig.json
-└── vitest.config.ts
+```bash
+# Run tests
+npm test
+
+# 98 tests covering all layers
 ```
 
-## Task Lifecycle (Google A2A)
+## License
 
-```
-Client (Terminal A)              Shared State              Agent (Terminal B)
-─────────────────              ──────────────              ─────────────────
-                                                                 
-1. Create Task ──────────────► TASK_STATE_SUBMITTED
-                                          
-                              broadcast SSE ──────────────► 2. Agent receives
-                                                                 task via SSE
-                              ◄──────────────────────────── 3. Agent processes
-                                                              (LLM works — user
-                                                               sees it live!)
-                                                             
-                              TASK_STATE_WORKING
-                              
-                              ◄──────────────────────────── 4. Agent posts result
-                                                              as Artifact with
-                                                              Part[] (A2A spec)
-                              
-                              TASK_STATE_COMPLETED
-                              
-5. Poll/Wait ◄────────────── Task with Artifact[]
-
-6. LLM continues conversation with result
-```
-
-## Key Design Decisions
-
-| Decision | Why |
-|----------|-----|
-| **Google A2A v1.0 data model** | Interoperability, future-proof, honest naming, spec handles hard problems |
-| **Each pi terminal IS an agent** | Real parallelism, real context per agent, real tools per agent |
-| **REST binding (spec §11)** | Simplest transport for v1, spec explicitly allows it |
-| **Shared state rendezvous** | P2P discovery without DNS or registries — perfect for LAN |
-| **Not MCP** | MCP is for tool integration; A2A is for agent-to-agent coordination |
-| **SSE for real-time** | Spec-compliant streaming, works everywhere |
-| **Auto HOST/JOIN** | First terminal starts server, others connect — zero manual setup |
-| **One tool** | `pipal_a2a_delegate(task, skill?, to?)` — simplicity wins |
-| **No synthetic runtime** | pi IS the runtime — no `createAgentSession()` wrapper needed |
-
-## karpathy-clean-code Compliance
-
-- ✅ **Core frozen** — `types.ts` has ZERO imports, pure Google A2A data model
-- ✅ **SDK = types only** — interfaces, no implementation
-- ✅ **Builtin implements SDK** — SkillMatcher is outside SDK
-- ✅ **No speculative abstractions** — only what we need today
-- ✅ **Three test layers** — Core (19 tests, no mocks), Application (stubs), E2E (real HTTP)
-- ✅ **Protocol compliance tests** — verifies TaskState format, ISO 8601, AgentCard v1.0 shape
-
-## Status
-
-**🚀 v0.1.0 shipped.** Two pi terminals can discover each other, delegate real tasks, and return results — end-to-end, verified by real testing.
-
-```
-Planner (Terminal A)                         Backend (Terminal B)
-───────────────────                         ────────────────────
-pipal_a2a_delegate                          [idle, watching]
-     │                                              │
-     ├── Task created ────────► Shared State ◄─────┤
-     │ (planner → backend)           │              │
-     │                    SSE ────►│              │
-     │                              │         📩 Delegated task
-     │                              │         sendUserMessage()
-     │                              │              │
-     │                              │         LLM works (you see it!)
-     │                              │              │
-     │                              │         agent_end fires
-     │                              │◄── Result ───┤
-     │                    Task complete            │
-     │◄── Poll/wait for result ───┤
-     │                              │
-     "Result from backend:          │
-      Done. Created test.txt"       │
-```
-
-**What works:**
-- `pipal_a2a_delegate` tool with `to=` and `skill=` routing
-- Shared state auto HOST/JOIN (first terminal starts server)
-- SSE task delivery to remote terminal
-- `pi.sendUserMessage()` task injection
-- `message_update` streaming capture
-- `agent_end` result posting
-- Result polling + display in delegator's terminal
-- `/pipal-status` shows live agent network
-- Google A2A v1.0 data model throughout
-- 51 unit tests passing
-
-**Next:** v0.1.5 — agent card signing + well-known discovery. v0.1.7 — Auto-Router (tag-based, no human delegation).
+MIT
