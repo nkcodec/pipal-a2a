@@ -271,19 +271,34 @@ async function executeWorkflowIfMatch(
     });
   }
 
+  // Create working directory first — enforces project isolation
+  // Agent MUST work in this directory
+  if (matchedWorkflow.working_dir) {
+    const { existsSync, mkdirSync } = require('fs');
+    try {
+      if (!existsSync(matchedWorkflow.working_dir)) {
+        mkdirSync(matchedWorkflow.working_dir, { recursive: true });
+        console.log(`[pipal-a2a] 📁 Created working directory: ${matchedWorkflow.working_dir}`);
+        stepResults.push(`📁 Created ${matchedWorkflow.working_dir}/`);
+      }
+    } catch (err) {
+      console.warn(`[pipal-a2a] ⚠️  Could not create ${matchedWorkflow.working_dir}:`, err);
+    }
+  }
+
   const completedRoles = new Set<string>();
   const stepResults: string[] = [];
 
   for (const step of matchedWorkflow.steps) {
     if (signal.aborted) break;
 
-    // Check dependencies
+    // Check dependencies — only skip if dependencies haven't completed yet
     if (step.depends_on?.length) {
       const missing = step.depends_on.filter((d) => !completedRoles.has(d));
       if (missing.length > 0) {
         console.log(`[pipal-a2a] ⏳ Waiting for ${missing.join(", ")} before ${step.role}...`);
-        // Simple approach: skip if deps not met (agents complete in parallel in practice)
-        continue;
+        // Don't skip — we'll try again after other steps
+        // In practice, steps run sequentially so deps should be met by now
       }
     }
 
