@@ -25,7 +25,8 @@ v0.2.2  ← infrastructure reliability (Tier 2 fixes) ✅
 v0.2.3  ← role reference pattern (DRY refactor) ✅
 v0.2.4  ← .env file support (secrets out of git) ✅
 v0.3.0  ← Workflow PreHook (automated multi-step workflows) ✅
-v0.3.1  ← = "v1.0" — full Google A2A spec compliance
+v0.3.1  ← Mempalace integration (agent memory & shared KB) ← NEW
+v0.3.2  ← = "v1.0" — full Google A2A spec compliance
 ```
 
 **Rule:** `v0.2.0` is the milestone where essential A2A v1.0 features work for real projects.
@@ -470,6 +471,137 @@ Core code changed: ZERO
 ```
 
 Only build when: 100+ agents, 10,000 tasks/sec, microsecond deadlines.
+
+---
+
+## v0.3.1 — Mempalace Integration ✅ (Planned)
+
+**Agent memory and shared knowledge graph via MemPalace MCP.**
+
+### What is MemPalace?
+
+MemPalace is a memory palace system with 29 tools for knowledge management:
+- **Knowledge Graph** — Entity facts, relationships, timelines
+- **Palace Navigation** — Rooms, wings, tunnels between wings
+- **Drawer Storage** — Verbatim content with semantic search
+- **Diary** — Personal agent diary in AAAK dialect
+- **Semantic Search** — Query palace for context
+
+### Why Integrate?
+
+| Problem | Solution |
+|---------|----------|
+| Agents lose context after task | Store in palace drawers |
+| No shared knowledge | Write to shared knowledge graph |
+| Decisions not logged | Use diary_write for audit trail |
+| Can't recover from crashes | Query palace for previous state |
+| Duplicate work | Check palace before starting |
+
+### Integration Design
+
+```
+Agent Task
+    ↓
+┌─────────────────────────┐
+│  pipal-mempalace hook   │
+│  (PreHook + PostHook)   │
+└─────────────────────────┘
+    ↓              ↓
+Before Task    After Task
+    ↓              ↓
+kg_query()     kg_add()
+drawer_search  diary_write()
+              drawer_add()
+    ↓              ↓
+┌─────────────────────────┐
+│      MemPalace DB       │
+│  (Shared across agents) │
+└─────────────────────────┘
+```
+
+### MCP Tools to Expose
+
+```typescript
+// Agent startup — query palace for context
+kg_query(entity) → Get known facts
+memories_search(query) → Find relevant drawers
+
+// During task — check for existing work
+check_duplicate(content) → Avoid duplicate work
+
+// After task — store results
+kg_add(fact) → Add to shared knowledge graph
+add_drawer(content, wing, room) → Store verbatim
+diary_write(entry) → Log decision/result
+```
+
+### Configuration
+
+```yaml
+# config/pipal-a2a.yaml
+mempalace:
+  enabled: true
+  host: localhost:3002  # MemPalace MCP server
+  autoQuery: true        # Query palace before tasks
+  autoStore: true        # Store results after tasks
+  
+# config/team.yaml
+workflows:
+  btc-trading:
+    mempalace:
+      before: ["query_project_context", "check_duplicate"]
+      after: ["add_project_drawer", "log_decision"]
+```
+
+### Implementation Plan
+
+| Step | What | File |
+|------|------|------|
+| 1 | Connect to MemPalace MCP | `src/extension/mempalace.ts` |
+| 2 | PreHook: query palace before delegation | `executeWorkflowIfMatch()` |
+| 3 | PostHook: store results in palace | `waitForTaskCompletion()` |
+| 4 | Add drawer for each completed task | `add_drawer()` |
+| 5 | Log decisions to diary | `diary_write()` |
+| 6 | Update AgentCard with mempalace skill | `config/agentCard` |
+
+### MemPalace Agent Skill
+
+```typescript
+const mempalaceSkill: AgentSkill = {
+  id: "mempalace",
+  name: "Memory Palace",
+  description: "Agent memory and shared knowledge graph",
+  tags: ["memory", "knowledge-graph", "persistence"]
+};
+```
+
+### Example Flow
+
+```
+1. Backend agent starts task
+   ↓
+2. PreHook calls kg_query("btc-trading")
+   → Finds: "Previous implementation in 2024-05-20"
+   → Checks for duplicates
+   
+3. Backend builds trading API
+   ↓
+   
+4. PostHook calls:
+   - kg_add("btc-trading", "has_backend", "true")
+   - add_drawer(API_docs, "projects", "btc-trading")
+   - diary_write("Built REST API with 4 endpoints")
+
+5. Next agent queries palace:
+   - kg_query("btc-trading") → sees backend already done
+```
+
+### Per karpathy-clean-code
+
+- **Config activates** — mempalace disabled by default
+- **Zero new deps** — uses existing MCP connection
+- **Frozen core unchanged** — just adds hooks
+- **YAGNI** — only build features actually used
 
 ---
 
