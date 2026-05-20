@@ -9,36 +9,36 @@
 # a workflow name, the entire workflow runs automatically (PreHook pattern).
 
 team:
-  roles:
-    planner:
-      description: Architecture, reasoning, multi-step planning, delegation.
-      skills: [planning, delegation]
-      tags: [plan, architecture, design]
+    roles:
+        planner:
+            description: Architecture, reasoning, multi-step planning, delegation.
+            skills: [planning, delegation]
+            tags: [plan, architecture, design]
 
-    backend:
-      description: Implementation, code generation, API development.
-      skills: [code-generation, backend-implementation]
-      tags: [node.js, express, api, backend]
+        backend:
+            description: Implementation, code generation, API development.
+            skills: [code-generation, backend-implementation]
+            tags: [node.js, express, api, backend]
 
-    frontend:
-      description: UI implementation, styling, user-facing code.
-      skills: [frontend-implementation]
-      tags: [react, css, tailwind, ui]
+        frontend:
+            description: UI implementation, styling, user-facing code.
+            skills: [frontend-implementation]
+            tags: [react, css, tailwind, ui]
 
-    data:
-      description: Data pipelines, analysis, embeddings, storage.
-      skills: [data-processing, embeddings]
-      tags: [data, chromadb, sqlite]
+        data:
+            description: Data pipelines, analysis, embeddings, storage.
+            skills: [data-processing, embeddings]
+            tags: [data, chromadb, sqlite, kafka, spark, pandas]
 
-    security:
-      description: Security audits, vulnerability scanning, hardening.
-      skills: [security-audit]
-      tags: [security, audit, hardening]
+        security:
+            description: Security audits, vulnerability scanning, hardening.
+            skills: [security-audit]
+            tags: [security, audit, hardening]
 
-    reviewer:
-      description: Code review, quality assurance, testing.
-      skills: [code-review]
-      tags: [review, testing, quality]
+        reviewer:
+            description: Code review, quality assurance, testing.
+            skills: [code-review]
+            tags: [review, testing, quality]
 
 # ─────────────────────────────────────────────────────────────────
 # Workflow Definitions (PreHook activation)
@@ -46,75 +46,75 @@ team:
 # Workflow = structured plan for planner — defines step sequencing.
 # ─────────────────────────────────────────────────────────────────
 workflows:
-  btc-trading:
-    name: "BTC Trading System"
-    description: "Full trading system with backend, security, frontend"
-    working_dir: "btc-trading"
-    steps:
-      - role: backend
-        task: |
-          Build a Node.js/Express trading API in btc-trading/backend/
-          Requirements:
-          - REST endpoints: GET /ticker, GET /orderbook, POST /order, GET /balance
-          - Support mock data for Binance, Coinbase, Kraken (no real API keys needed)
-          - Use in-memory storage for orders and balances
-          - Include: server.js, routes/, models/, package.json
-          - No authentication needed for demo
-      - role: security
-        task: |
-          Security audit for btc-trading/backend/
-          Requirements:
-          - Check for injection vulnerabilities in order handling
-          - Verify input validation on all endpoints
-          - Review for SSRF in exchange API calls
-          - Report findings in btc-trading/security-report.md
-        depends_on: [backend]
-      - role: data
-        task: |
-          Market data feed integration for btc-trading/
-          Requirements:
-          - Create a simple price simulator with configurable price ranges
-          - Support BTC, ETH, SOL trading pairs
-          - Emit price updates via SSE every 5 seconds
-          - Store in btc-trading/data/price-simulator.js
-        depends_on: [backend]
-      - role: frontend
-        task: |
-          Trading UI for btc-trading/frontend/
-          Requirements:
-          - React with basic CSS (no Tailwind)
-          - Show live price ticker from data feed
-          - Order form: buy/sell BTC, ETH, SOL
-          - Display order history
-          - Connect to backend at localhost:3000
-        depends_on: [backend, data]
-      - role: reviewer
-        task: |
-          Final code review for btc-trading/
-          Requirements:
-          - Verify all files in btc-trading/ compile without errors
-          - Check package.json has valid scripts: start, test
-          - Ensure no hardcoded secrets
-          - Report status in btc-trading/review-report.md
-        depends_on: [frontend]
+    btc-trading:
+        name: "BTC Trading System"
+        description: "Full trading system with backend, security, frontend"
+        working_dir: "btc-trading"
+        steps:
+            - role: backend
+              task: |
+                  Build a Node.js/Express trading API in btc-trading/backend/
+                  Requirements:
+                  - REST endpoints: GET /ticker, GET /orderbook, POST /order, GET /balance
+                  - Support mock data for Binance, Coinbase, Kraken (no real API keys needed)
+                  - Use in-memory storage for orders and balances
+                  - Include: server.js, routes/, models/, package.json
+                  - No authentication needed for demo
+            - role: security
+              task: |
+                  Security audit for btc-trading/backend/
+                  Requirements:
+                  - Check for injection vulnerabilities in order handling
+                  - Verify input validation on all endpoints
+                  - Review for SSRF in exchange API calls
+                  - Report findings in btc-trading/security-report.md
+              depends_on: [backend]
+            - role: data
+              task: |
+                  Market data feed integration for btc-trading/
+                  Requirements:
+                  - Create a simple price simulator with configurable price ranges
+                  - Support BTC, ETH, SOL trading pairs
+                  - Emit price updates via SSE every 5 seconds
+                  - Store in btc-trading/data/price-simulator.js
+              depends_on: [backend]
+            - role: frontend
+              task: |
+                  Trading UI for btc-trading/frontend/
+                  Requirements:
+                  - React with basic CSS (no Tailwind)
+                  - Show live price ticker from data feed
+                  - Order form: buy/sell BTC, ETH, SOL
+                  - Display order history
+                  - Connect to backend at localhost:3000
+              depends_on: [backend, data]
+            - role: reviewer
+              task: |
+                  Final code review for btc-trading/
+                  Requirements:
+                  - Verify all files in btc-trading/ compile without errors
+                  - Check package.json has valid scripts: start, test
+                  - Ensure no hardcoded secrets
+                  - Report status in btc-trading/review-report.md
+              depends_on: [frontend]
 
-  todo-app:
-    name: "Todo App"
-    description: "Simple todo app with backend API and frontend UI"
-    working_dir: "todo-app"
-    steps:
-      - role: backend
-        task: |
-          Build REST API for todo-app in todo-app/backend/
-          Requirements:
-          - Endpoints: GET /todos, POST /todos, PUT /todos/:id, DELETE /todos/:id
-          - Node.js/Express with in-memory storage
-          - Include: server.js, package.json
-      - role: frontend
-        task: |
-          Todo UI for todo-app/frontend/
-          Requirements:
-          - React with basic CSS
-          - Add, complete, delete todos
-          - Connect to backend at localhost:3000
-        depends_on: [backend]
+    todo-app:
+        name: "Todo App"
+        description: "Simple todo app with backend API and frontend UI"
+        working_dir: "todo-app"
+        steps:
+            - role: backend
+              task: |
+                  Build REST API for todo-app in todo-app/backend/
+                  Requirements:
+                  - Endpoints: GET /todos, POST /todos, PUT /todos/:id, DELETE /todos/:id
+                  - Node.js/Express with in-memory storage
+                  - Include: server.js, package.json
+            - role: frontend
+              task: |
+                  Todo UI for todo-app/frontend/
+                  Requirements:
+                  - React with basic CSS
+                  - Add, complete, delete todos
+                  - Connect to backend at localhost:3000
+              depends_on: [backend]

@@ -1,0 +1,13 @@
+{
+  "name": "btc-trading-api",
+  "version": "1.0.0",
+  "description": "BTC Trading API with mock data for Binance, Coinbase, Kraken",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
