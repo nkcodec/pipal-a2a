@@ -22,7 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readFileSync } from "fs";
-import { load, DEFAULT_SAFE_SCHEMA } from "js-yaml";
+import { load, DEFAULT_SCHEMA } from "js-yaml";
 import { resolve } from "path";
 import {
   createAgentCard,
@@ -98,7 +98,14 @@ function loadConfig(): ExtensionConfig {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      config = load(content, { schema: DEFAULT_SAFE_SCHEMA }) as ExtensionConfig;
+      const loaded = load(content, { schema: DEFAULT_SCHEMA }) as Partial<ExtensionConfig>;
+      // Merge loaded config with defaults — identity may be absent in YAML
+      config = {
+        sharedState: loaded.sharedState ?? config.sharedState,
+        role: loaded.role,
+        apiKey: loaded.apiKey,
+        identity: loaded.identity ?? config.identity,
+      };
       configFileFound = true;
       break;
     } catch {
@@ -148,8 +155,15 @@ function loadConfig(): ExtensionConfig {
   if (process.env.PIPAL_API_KEY) config.apiKey = process.env.PIPAL_API_KEY;
   if (process.env.PIPAL_SHARED_STATE) config.sharedState = process.env.PIPAL_SHARED_STATE;
 
-  // Auto-port from working directory — different projects get different ports
-  // Unless PIPAL_SHARED_STATE is explicitly set
+  // After YAML load: propagate sharedState to process.env if set from config
+  // This prevents auto-port from overriding any explicit YAML sharedState
+  // (auto-port only runs for default localhost:5000 with no explicit config)
+  if (config.sharedState && !process.env.PIPAL_SHARED_STATE) {
+    process.env.PIPAL_SHARED_STATE = config.sharedState;
+  }
+
+  // Auto-port: ONLY runs if sharedState is still default (5000) AND no explicit config
+  // Purpose: project isolation via CWD hash for teams without explicit config
   if (!process.env.PIPAL_SHARED_STATE && config.sharedState === "http://localhost:5000") {
     const cwd = process.cwd();
     const hash = cwd.split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
@@ -178,7 +192,7 @@ function loadTeamRoles(): Map<string, TeamRole> {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      const data = load(content, { schema: DEFAULT_SAFE_SCHEMA }) as any;
+      const data = load(content, { schema: DEFAULT_SCHEMA }) as any;
       if (data?.team?.roles) {
         for (const [key, val] of Object.entries(data.team.roles)) {
           const r = val as any;
