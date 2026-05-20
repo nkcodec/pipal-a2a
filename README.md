@@ -60,7 +60,9 @@ The backend terminal receives the task, processes it, and sends the result back.
 
 ## Tools
 
-PiPal-A2A registers 4 tools in your pi session:
+PiPal-A2A registers 4 tools and 2 commands in your pi session:
+
+### Tools (LLM uses these automatically)
 
 | Tool | What |
 |------|------|
@@ -68,6 +70,29 @@ PiPal-A2A registers 4 tools in your pi session:
 | `pipal_a2a_agents()` | List all online agents |
 | `pipal_a2a_my_card()` | Show your own agent card |
 | `pipal_a2a_status()` | Check network health |
+
+### Commands (you type these)
+
+| Command | What |
+|---------|------|
+| `/pipal-role backend` | Pick your role from team.yaml |
+| `/pipal-role` | List available roles |
+| `/pipal-status` | Show network status |
+
+## IDE Users (Zed, VSCode)
+
+No env vars needed. Use `/pipal-role` to pick your identity:
+
+1. Open 3 terminals in the same project
+2. In each terminal, type:
+
+```
+Terminal 1: /pipal-role planner
+Terminal 2: /pipal-role backend
+Terminal 3: /pipal-role frontend
+```
+
+That's it. Roles come from `config/team.yaml`.
 
 ## Project Isolation
 

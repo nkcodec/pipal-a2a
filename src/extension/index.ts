@@ -106,6 +106,43 @@ function loadConfig(): ExtensionConfig {
   return config;
 }
 
+interface TeamRole {
+  name: string;
+  description: string;
+  skills: string[];
+  tags?: string[];
+}
+
+function loadTeamRoles(): Map<string, TeamRole> {
+  const roles = new Map<string, TeamRole>();
+  const paths = [
+    resolve(process.cwd(), "config/team.yaml"),
+    resolve(process.cwd(), "team.yaml"),
+    resolve(process.env.HOME || "~", ".pi/config/team.yaml"),
+  ];
+  for (const p of paths) {
+    try {
+      const content = readFileSync(p, "utf8");
+      const data = load(content) as any;
+      if (data?.team?.roles) {
+        for (const [key, val] of Object.entries(data.team.roles)) {
+          const r = val as any;
+          roles.set(key, {
+            name: key,
+            description: r.description || `Role: ${key}`,
+            skills: r.skills || [],
+            tags: r.tags || [],
+          });
+        }
+      }
+      break;
+    } catch {
+      continue;
+    }
+  }
+  return roles;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Extension Factory
 // ─────────────────────────────────────────────────────────────────
@@ -678,6 +715,73 @@ export default function (pi: ExtensionAPI) {
       } catch (error) {
         ctx.ui.notify(`Failed to get status: ${error}`, "error");
       }
+    },
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Command: /pipal-role — pick identity from team.yaml roles
+  // ───────────────────────────────────────────────────────────────
+  pi.registerCommand("pipal-role", {
+    description: "Set this terminal's role from team.yaml (e.g. /pipal-role backend)",
+    handler: async (args, ctx) => {
+      const roleName = (args as string).trim();
+      if (!roleName) {
+        // List available roles
+        const roles = loadTeamRoles();
+        if (roles.size === 0) {
+          ctx.ui.notify("No roles found in team.yaml. Create config/team.yaml with team.roles.", "warning");
+          return;
+        }
+        const list = Array.from(roles.entries())
+          .map(([name, r]) => `  ${name.padEnd(12)} [${r.skills.join(", ")}]${r.tags?.length ? " tags:[" + r.tags.join(", ") + "]" : ""}`)
+          .join("\n");
+        ctx.ui.notify(`Available roles:\n${list}\n\nUsage: /pipal-role <name>`, "info");
+        return;
+      }
+
+      const roles = loadTeamRoles();
+      const role = roles.get(roleName);
+      if (!role) {
+        const available = Array.from(roles.keys()).join(", ");
+        ctx.ui.notify(`Unknown role "${roleName}". Available: ${available}`, "error");
+        return;
+      }
+
+      // Update config
+      config.identity.name = role.name;
+      config.identity.description = role.description;
+      config.identity.skills = role.skills;
+      config.identity.tags = role.tags || [];
+
+      // Re-register on the network
+      if (!client) {
+        ctx.ui.notify("Agent network not started yet. Role saved for next session.", "warning");
+        return;
+      }
+
+      // Unregister old card
+      if (card) {
+        try { await client.unregister(card.name); } catch {}
+      }
+
+      // Build new card
+      const skills: AgentSkill[] = config.identity.skills.map((s) =>
+        createSkill(s, s, `Skill: ${s}`, { tags: config.identity.tags })
+      );
+      card = createAgentCard(
+        config.identity.name,
+        config.sharedState,
+        skills,
+        { description: config.identity.description || `Agent: ${config.identity.name}` }
+      );
+
+      await client.register(card);
+      registry.register(card);
+
+      const skillList = card.skills.map(s => s.id).join(", ");
+      const tagList = config.identity.tags.join(", ");
+      ctx.ui.notify(`✅ Role: ${role.name} [${skillList}] tags:[${tagList}]`, "info");
+      console.log(`[pipal-a2a] 🔄 Re-registered as "${card.name}" [${skillList}] tags:[${tagList}]`);
     },
   });
 

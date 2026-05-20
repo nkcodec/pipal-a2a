@@ -1,33 +1,23 @@
 # PiPal-A2A Team Configuration
 # karpathy-clean-code: Config activates, not defines. Router uses this.
 # Core (Task lifecycle) is frozen. This file is infrastructure.
+#
+# Usage: /pipal-role <name>   (e.g. /pipal-role backend)
+# Or:    /pipal-role          (lists available roles)
 
 team:
-  # Role name → AgentCard name mapping
-  # Agents start with PIPAL_NAME=<role>
   roles:
-    frontend:
-      name: frontend
-      description: User-facing orchestrator.
-      skills: [frontend-implementation, planning]
-      escalatesTo: [planner]
-      handlesDirectly:
-        - simple-tasks
-        - greetings
-
     planner:
-      name: planner
-      description: Architecture, reasoning, multi-step planning.
+      description: Architecture, reasoning, multi-step planning, delegation.
       skills: [planning, delegation]
-      escalatesTo: [frontend]
-      handlesDirectly:
-        - architecture
-        - review
+      tags: [plan, architecture, design]
 
     backend:
-      name: backend
-      description: Implementation, code generation, execution.
+      description: Implementation, code generation, API development.
       skills: [code-generation, backend-implementation]
-      escalatesTo: [planner]
-      handlesDirectly:
-        - implementation
+      tags: [node.js, express, api, backend]
+
+    frontend:
+      description: UI implementation, styling, user-facing code.
+      skills: [frontend-implementation]
+      tags: [react, css, tailwind, ui]
