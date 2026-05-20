@@ -17,7 +17,7 @@ v0.1.4  ← auth (API Key) ✅
 v0.1.5  ← agent card signing + well-known discovery ✅
 v0.1.6  ← push notifications
 v0.1.7  ← Auto-Router (tag-based, no human delegation) ✅
-v0.1.8  ← gRPC binding
+v0.1.8  ← gRPC binding → Future Ideas
 v0.1.9  ← OAuth2 + extended agent card
 v0.2.0  ← final polish, interop tests
 v0.2.1  ← = "v1.0" — full Google A2A spec compliance
@@ -355,6 +355,21 @@ Implementation:
 - Compares expected vs actual roles
 - Auto-assigns first missing role (name, skills, tags)
 - Only build when manual env vars become painful for 5+ terminal teams
+
+### gRPC Binding — Alternative wire format
+
+gRPC server alongside Express. Same logic, binary protobuf instead of JSON.
+
+Per karpathy-clean-code: YAGNI. JSON-RPC is fine for 3 agents on localhost. LLM is 99.99% of latency.
+
+```
+New file: src/infrastructure/grpc.ts (~80 lines)
+Proto:   pipal-a2a.proto (~50 lines)
+Deps:    @grpc/grpc-loader, @grpc/proto-loader
+Core code changed: ZERO
+```
+
+Only build when: 100+ agents, 10,000 tasks/sec, microsecond deadlines.
 
 ---
 
