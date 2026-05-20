@@ -19,11 +19,11 @@ v0.1.6  ← push notifications ✅
 v0.1.7  ← Auto-Router (tag-based, no human delegation) ✅
 v0.1.8  ← gRPC binding → Future Ideas
 v0.1.9  ← OAuth2 + extended agent card → Future Ideas
-v0.2.0  ← full spec compliance ✅
+v0.2.0  ← essential A2A v1.0 features ✅
 v0.2.1  ← = "v1.0" — full Google A2A spec compliance
 ```
 
-**Rule:** `v0.2.0` is the milestone where we can say "fully Google A2A v1.0 compliant".
+**Rule:** `v0.2.0` is the milestone where essential A2A v1.0 features work for real projects.
 Everything before that is incremental, testable, shippable.
 
 ---
@@ -222,11 +222,13 @@ Ship readiness. Only build when: preparing for npm publish or external users.
 
 ---
 
-## v0.2.0 — Full Google A2A v1.0 Compliance ✅ SHIPPED
+## v0.2.0 — Essential Google A2A v1.0 Features ✅ SHIPPED
 
-All essential Google A2A v1.0 features implemented and tested.
+All essential Google A2A v1.0 features implemented, tested, and verified in real pi sessions.
 
-- [x] v0.1.1 — JSON-RPC 2.0 binding
+**NOT full spec compliance.** Full compliance requires: gRPC binding, REST binding, OAuth2, OpenID Connect, card signing, extended card. Those are in Future Ideas (YAGNI until needed).
+
+**What IS shipped:**
 - [x] v0.1.2 — Streaming (SSE)
 - [x] v0.1.3 — Multi-turn (contextId, INPUT_REQUIRED)
 - [x] v0.1.4 — Auth (API key)
