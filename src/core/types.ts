@@ -325,3 +325,16 @@ export function createSkill(
     examples: options?.examples,
   });
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Push Notifications (Google A2A spec §3.1.7-3.1.10)
+// ─────────────────────────────────────────────────────────────────
+
+export interface PushNotificationConfig {
+  readonly taskId?: string;
+  readonly url: string;
+  readonly authentication?: {
+    readonly scheme: string;
+    readonly credentials?: string;
+  };
+}

@@ -29,6 +29,9 @@ export {
   type AgentProvider,
   type AgentCard,
   
+  // Push notifications
+  type PushNotificationConfig,
+  
   // Factory functions
   createPart,
   createMessage,

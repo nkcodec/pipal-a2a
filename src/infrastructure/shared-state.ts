@@ -14,7 +14,7 @@
  */
 
 import express, { type Request, type Response } from "express";
-import type { AgentCard, Task, TaskState } from "../core/types.js";
+import type { AgentCard, Task, TaskState, PushNotificationConfig } from "../core/types.js";
 import { createTask } from "../core/types.js";
 import {
   JsonRpcDispatcher,
@@ -65,6 +65,7 @@ export class SharedStateServer {
   private tasks = new Map<string, StoredTask>();
   private sseClients = new Map<string, Response>();
   private taskStreams = new Map<string, { res: Response; taskId: string }>();
+  private pushConfigs = new Map<string, PushNotificationConfig>(); // configId → config
   private validApiKeys = new Set<string>();
 
   // JSON-RPC dispatcher for task methods
@@ -73,6 +74,7 @@ export class SharedStateServer {
   async start(port: number): Promise<string> {
     this.app.use(express.json());
     this.setupAgentRoutes();
+    this.setupPushRoutes();
     this.setupRpcRoutes();
     this.setupSseRoutes();
 
@@ -167,6 +169,71 @@ export class SharedStateServer {
       }
       res.json({ ok: true });
     });
+  }
+
+  // ── Push Notification Routes (Google A2A spec §3.1.7-3.1.10) ─────
+
+  private setupPushRoutes(): void {
+    // Create
+    this.app.post("/push-configs", this.authMiddleware, (req: Request, res: Response) => {
+      const config = req.body as PushNotificationConfig;
+      if (!config?.url) {
+        res.status(400).json({ error: "PushNotificationConfig requires url" });
+        return;
+      }
+      const id = crypto.randomUUID();
+      this.pushConfigs.set(id, config);
+      console.log(`[Push] Config created: ${id} → ${config.url}`);
+      res.setHeader("A2A-Version", "1.0");
+      res.json({ id, ...config });
+    });
+
+    // List
+    this.app.get("/push-configs", this.authMiddleware, (_req: Request, res: Response) => {
+      const configs = Array.from(this.pushConfigs.entries()).map(([id, c]) => ({ id, ...c }));
+      res.setHeader("A2A-Version", "1.0");
+      res.json(configs);
+    });
+
+    // Get
+    this.app.get("/push-configs/:id", this.authMiddleware, (req: Request, res: Response) => {
+      const config = this.pushConfigs.get(req.params.id);
+      if (!config) return res.status(404).json({ error: "Config not found" });
+      res.setHeader("A2A-Version", "1.0");
+      res.json({ id: req.params.id, ...config });
+    });
+
+    // Delete
+    this.app.delete("/push-configs/:id", this.authMiddleware, (req: Request, res: Response) => {
+      const deleted = this.pushConfigs.delete(req.params.id);
+      res.setHeader("A2A-Version", "1.0");
+      res.json({ ok: deleted });
+    });
+  }
+
+  /**
+   * Fire webhook for task completion/failure.
+   * Called internally after task state changes.
+   */
+  private async firePushWebhook(taskId: string, state: string, result?: string): Promise<void> {
+    for (const [id, config] of this.pushConfigs.entries()) {
+      // If config has taskId filter, only fire for matching tasks
+      if (config.taskId && config.taskId !== taskId) continue;
+      try {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (config.authentication?.scheme === "bearer" && config.authentication.credentials) {
+          headers.Authorization = `Bearer ${config.authentication.credentials}`;
+        }
+        await fetch(config.url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ taskId, state, result, timestamp: new Date().toISOString() }),
+        });
+        console.log(`[Push] Webhook fired: ${id} → ${config.url} (${state})`);
+      } catch (err) {
+        console.warn(`[Push] Webhook failed: ${id} → ${config.url}`, (err as Error).message);
+      }
+    }
   }
 
   // ── JSON-RPC Task Routes (Google A2A spec §9) ───────────────────
@@ -299,9 +366,11 @@ export class SharedStateServer {
       if (finalState === "TASK_STATE_COMPLETED") {
         this.broadcast("task:completed", { taskId: updated.id, result });
         this.broadcastToTask(taskId, "task_completed", { result });
+        this.firePushWebhook(taskId, finalState, result);
       } else if (finalState === "TASK_STATE_FAILED") {
         this.broadcast("task:failed", { taskId: updated.id, error });
         this.broadcastToTask(taskId, "task_failed", { error });
+        this.firePushWebhook(taskId, finalState, error);
       } else if (finalState === "TASK_STATE_CANCELED") {
         this.broadcast("task:failed", { taskId: updated.id, error: "Task was cancelled" });
         this.broadcastToTask(taskId, "task_failed", { error: "Task was cancelled" });
@@ -574,6 +643,31 @@ export class SharedStateClient {
     const r = await fetch(`${this.baseUrl}/.well-known/agent-card.json`);
     if (!r.ok) throw new Error(`Discovery failed: ${r.status} ${r.statusText}`);
     return r.json() as Promise<AgentCard[]>;
+  }
+
+  // ── Push Notification Config (Google A2A spec §3.1.7-3.1.10) ────
+
+  async createPushConfig(config: PushNotificationConfig): Promise<PushNotificationConfig & { id: string }> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const r = await fetch(`${this.baseUrl}/push-configs`, { method: "POST", headers, body: JSON.stringify(config) });
+    if (!r.ok) throw new Error(`Create push config failed: ${r.status} ${r.statusText}`);
+    return r.json() as Promise<PushNotificationConfig & { id: string }>;
+  }
+
+  async listPushConfigs(): Promise<(PushNotificationConfig & { id: string })[]> {
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const r = await fetch(`${this.baseUrl}/push-configs`, { headers });
+    if (!r.ok) throw new Error(`List push configs failed: ${r.status} ${r.statusText}`);
+    return r.json() as Promise<(PushNotificationConfig & { id: string })[]>;
+  }
+
+  async deletePushConfig(id: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const r = await fetch(`${this.baseUrl}/push-configs/${id}`, { method: "DELETE", headers });
+    if (!r.ok) throw new Error(`Delete push config failed: ${r.status} ${r.statusText}`);
   }
 
   // ── JSON-RPC call helper ────────────────────────────────────────
