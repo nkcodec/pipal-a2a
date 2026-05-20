@@ -4,6 +4,9 @@
 #
 # Usage: /pipal-role <name>   (e.g. /pipal-role backend)
 # Or:    /pipal-role          (lists available roles)
+#
+# Workflows: Add workflow definitions here. When a delegate task matches
+# a workflow name, the entire workflow runs automatically (PreHook pattern).
 
 team:
   roles:
@@ -21,3 +24,53 @@ team:
       description: UI implementation, styling, user-facing code.
       skills: [frontend-implementation]
       tags: [react, css, tailwind, ui]
+
+    data:
+      description: Data pipelines, analysis, embeddings, storage.
+      skills: [data-processing, embeddings]
+      tags: [data, chromadb, sqlite]
+
+    security:
+      description: Security audits, vulnerability scanning, hardening.
+      skills: [security-audit]
+      tags: [security, audit, hardening]
+
+    reviewer:
+      description: Code review, quality assurance, testing.
+      skills: [code-review]
+      tags: [review, testing, quality]
+
+# ─────────────────────────────────────────────────────────────────
+# Workflow Definitions (PreHook activation)
+# karpathy-clean-code: Config activates, not defines.
+# Workflow = structured plan for planner — defines step sequencing.
+# ─────────────────────────────────────────────────────────────────
+workflows:
+  btc-trading:
+    name: "BTC Trading System"
+    description: "Full trading system with backend, security, frontend"
+    steps:
+      - role: backend
+        task: "Build exchange API adapter"
+      - role: security
+        task: "Audit trading algorithm for vulnerabilities"
+        depends_on: [backend]
+      - role: data
+        task: "Integrate market data feed"
+        depends_on: [backend]
+      - role: frontend
+        task: "Build trading UI with charts"
+        depends_on: [backend, data]
+      - role: reviewer
+        task: "Final code review before production"
+        depends_on: [frontend]
+
+  todo-app:
+    name: "Todo App"
+    description: "Simple todo app with backend API and frontend UI"
+    steps:
+      - role: backend
+        task: "Build REST API for todo operations"
+      - role: frontend
+        task: "Build todo UI"
+        depends_on: [backend]

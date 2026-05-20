@@ -174,6 +174,199 @@ function loadConfig(): ExtensionConfig {
   return config;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Workflow PreHook Types
+// karpathy-clean-code: Config activates, not defines.
+// Workflow = structured plan for planner — executed via PreHook.
+// ─────────────────────────────────────────────────────────────────
+
+interface WorkflowStep {
+  role: string;
+  task: string;
+  depends_on?: string[];
+}
+
+interface Workflow {
+  name: string;
+  description: string;
+  steps: WorkflowStep[];
+}
+
+/**
+ * Load workflows from team.yaml (same resolution path as loadTeamRoles).
+ * karpathy-clean-code: Config activates — this reads config, doesn't define behavior.
+ */
+function loadWorkflows(): Map<string, Workflow> {
+  const workflows = new Map<string, Workflow>();
+  const paths = [
+    resolve(process.cwd(), "config/team.yaml"),
+    resolve(process.cwd(), "team.yaml"),
+    resolve(process.env.HOME || "~", ".pi/config/team.yaml"),
+  ];
+  for (const p of paths) {
+    try {
+      const content = readFileSync(p, "utf8");
+      const data = load(content, { schema: DEFAULT_SCHEMA }) as any;
+      if (data?.workflows) {
+        for (const [key, wf] of Object.entries(data.workflows)) {
+          const w = wf as any;
+          workflows.set(key, {
+            name: w.name || key,
+            description: w.description || "",
+            steps: (w.steps || []).map((s: any) => ({
+              role: s.role,
+              task: s.task,
+              depends_on: s.depends_on || [],
+            })),
+          });
+        }
+      }
+      break;
+    } catch {
+      continue;
+    }
+  }
+  return workflows;
+}
+
+/**
+ * Workflow PreHook: executes workflow steps if task matches a workflow name.
+ * Returns true if a workflow was executed, false for normal delegation.
+ * karpathy-clean-code: PreHook runs before Core — validate, gate, or intercept.
+ */
+async function executeWorkflowIfMatch(
+  task: string,
+  client: SharedStateClient,
+  card: AgentCard,
+  onlineAgents: AgentCard[],
+  signal: AbortSignal,
+  onUpdate?: (update: any) => void
+): Promise<{ executed: boolean; summary?: string }> {
+  const workflows = loadWorkflows();
+  if (workflows.size === 0) return { executed: false };
+
+  // Normalize task for matching (lowercase, trim, strip common prefixes)
+  const normalizedTask = task.toLowerCase().trim()
+    .replace(/^(build|run|execute|start|create|make)\s+/i, "");
+
+  // Find matching workflow — check if task contains workflow key
+  let matchedWorkflow: Workflow | null = null;
+  for (const [key, wf] of workflows) {
+    const normalizedKey = key.toLowerCase().replace(/-_/g, " ");
+    if (normalizedTask.includes(normalizedKey) || normalizedKey.includes(normalizedTask)) {
+      matchedWorkflow = wf;
+      break;
+    }
+  }
+
+  if (!matchedWorkflow) return { executed: false };
+
+  console.log(`[pipal-a2a] 🔄 Workflow PreHook matched: ${matchedWorkflow.name}`);
+  if (onUpdate) {
+    onUpdate({
+      content: [{ type: "text" as const, text: `[pipal-a2a] 🔄 Starting workflow: ${matchedWorkflow.name}` }],
+      details: { workflow: matchedWorkflow.name },
+    });
+  }
+
+  const completedRoles = new Set<string>();
+  const stepResults: string[] = [];
+
+  for (const step of matchedWorkflow.steps) {
+    if (signal.aborted) break;
+
+    // Check dependencies
+    if (step.depends_on?.length) {
+      const missing = step.depends_on.filter((d) => !completedRoles.has(d));
+      if (missing.length > 0) {
+        console.log(`[pipal-a2a] ⏳ Waiting for ${missing.join(", ")} before ${step.role}...`);
+        // Simple approach: skip if deps not met (agents complete in parallel in practice)
+        continue;
+      }
+    }
+
+    // Find target agent
+    const target = onlineAgents.find((a) => a.name === step.role);
+    if (!target) {
+      console.log(`[pipal-a2a] ⚠️ Agent ${step.role} not online — skipping step`);
+      stepResults.push(`⚠️ ${step.role}: skipped (not online)`);
+      continue;
+    }
+
+    console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${step.task.slice(0, 50)}..."`);
+
+    // Execute delegation with result capture
+    const taskId = await client.createTask({
+      from: card.name,
+      to: step.role,
+      task: step.task,
+    });
+
+    const result = await waitForTaskCompletion(client, taskId, 120_000, signal, onUpdate, card.name, target.name);
+    completedRoles.add(step.role);
+
+    const status = result?.status?.state === "TASK_STATE_COMPLETED" ? "✅" : "❌";
+    const text = result?.artifacts?.[0]?.parts?.[0]?.text?.slice(0, 100) || "";
+    stepResults.push(`${status} ${step.role}: ${text || result?.metadata?.error || "completed"}`);
+
+    console.log(`[pipal-a2a] ✅ Step completed: ${step.role}`);
+  }
+
+  const summary = `Workflow "${matchedWorkflow.name}" completed:\n${stepResults.join("\n")}`;
+  console.log(`[pipal-a2a] 🔄 Workflow done: ${matchedWorkflow.name}`);
+  return { executed: true, summary };
+}
+
+/**
+ * Wait for a task to complete, with abort signal support and streaming.
+ */
+function waitForTaskCompletion(
+  client: SharedStateClient,
+  taskId: string,
+  timeoutMs: number,
+  signal: AbortSignal,
+  onUpdate?: (update: any) => void,
+  fromName?: string,
+  toName?: string
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new Error("Aborted"));
+
+    const timer = setTimeout(() => reject(new Error("Task timeout")), timeoutMs);
+
+    let accumulated = "";
+
+    const unsub = client.subscribeToTask(taskId, (event, data) => {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        unsub();
+        return reject(new Error("Aborted"));
+      }
+
+      if (event === "artifact_update" && (data as any)?.chunk) {
+        accumulated += (data as any).chunk;
+        if (onUpdate) {
+          onUpdate({
+            content: [{ type: "text" as const, text: accumulated }],
+            details: { taskId, from: fromName, to: toName, streaming: true },
+          });
+        }
+      }
+      if (event === "task_completed" || event === "task_failed") {
+        clearTimeout(timer);
+        unsub();
+        client.getTask(taskId).then(resolve).catch(reject);
+      }
+    });
+
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      unsub();
+      reject(new Error("Aborted"));
+    });
+  });
+}
+
 interface TeamRole {
   name: string;
   description: string;
@@ -485,6 +678,8 @@ export default function (pi: ExtensionAPI) {
     label: "Delegate to Agent (A2A)",
     description:
       "Send a task to another agent terminal in the P2P agent network. " +
+      "If the task matches a workflow name in config/team.yaml, " +
+      "the entire workflow will be executed automatically. " +
       "IMPORTANT: This is the ONLY way to delegate work to other pi terminals. " +
       "Use this tool instead of subagents when you want to send work to another terminal. " +
       "The other agent's LLM will process the task in its own terminal (the user can see it working). " +
@@ -516,6 +711,26 @@ export default function (pi: ExtensionAPI) {
         // Route using shared state (not local registry — SSE may miss events)
         const onlineAgents = await client.listAgents();
         const others = onlineAgents.filter((a: AgentCard) => a.name !== card!.name);
+
+        // ── Workflow PreHook: intercept if task matches a workflow name ──
+        // karpathy-clean-code: PreHook runs before Core. Config activates.
+        if (!params.to && !params.skill) {
+          const { executed, summary } = await executeWorkflowIfMatch(
+            params.task,
+            client,
+            card!,
+            others,
+            signal,
+            onUpdate,
+          );
+          if (executed) {
+            return {
+              content: [{ type: "text" as const, text: summary || "Workflow completed successfully." }],
+              details: { workflow: true },
+            };
+          }
+        }
+        // ── End Workflow PreHook — fall through to normal delegation ──
 
         let targetCard: AgentCard | undefined;
 

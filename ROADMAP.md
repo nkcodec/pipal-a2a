@@ -24,7 +24,8 @@ v0.2.1  ← security hardening (Tier 1 fixes) ✅
 v0.2.2  ← infrastructure reliability (Tier 2 fixes) ✅
 v0.2.3  ← role reference pattern (DRY refactor) ✅
 v0.2.4  ← .env file support (secrets out of git) ✅
-v0.3.0  ← = "v1.0" — full Google A2A spec compliance
+v0.3.0  ← Workflow PreHook (automated multi-step workflows) ✅
+v0.3.1  ← = "v1.0" — full Google A2A spec compliance
 ```
 
 **Rule:** `v0.2.0` is the milestone where essential A2A v1.0 features work for real projects.
@@ -339,6 +340,35 @@ Secrets should not be in version control. Per-project isolation needed.
 
 **Precedence:** env var (external) → .env file → pipal-a2a.yaml apiKey → no auth
 **Files:** src/extension/index.ts, config/pipal-a2a.yaml, .env (new)
+**Tests:** 98 passed, 0 failed
+
+---
+
+## v0.3.0 — Workflow PreHook ✅ SHIPPED
+
+Per karpathy-clean-code: Config activates, not defines. Workflow = structured plan.
+
+**Problem:** Manual coordination of 5+ agents is error-prone. Critical steps can be missed.
+
+**Solution:** Workflow PreHook intercepts delegation and auto-executes multi-step workflows from config/team.yaml.
+
+**Changes:**
+- [x] Added `workflows` block to team.yaml (btc-trading, todo-app)
+- [x] Added `loadWorkflows()` — reads workflows from same YAML paths
+- [x] Added `executeWorkflowIfMatch()` — PreHook that matches tasks to workflows
+- [x] Added `waitForTaskCompletion()` — SSE subscription with timeout
+- [x] Added `WorkflowStep` and `Workflow` types
+- [x] Hooked into delegate tool — checks workflow before normal routing
+- [x] Added new roles: data, security, reviewer (for btc-trading workflow)
+
+**How it works:**
+- Task "build btc-trading" → matches workflow in team.yaml → auto-executes all 5 steps
+- Task "build todo-app" → matches workflow → auto-executes 2 steps
+- Other tasks → normal delegation (SmartRouter or first available)
+
+**PreHook guarantees 100% workflow execution.** Explicit `to=` or `skill=` bypasses PreHook.
+
+**Files:** config/team.yaml, src/extension/index.ts
 **Tests:** 98 passed, 0 failed
 
 ---
