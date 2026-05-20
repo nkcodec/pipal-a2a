@@ -311,6 +311,31 @@ Implementation:
 - Separate `pi-file-guard` extension (not pipal-a2a)
 - Triggered only if promptGuidelines can't prevent planner from writing code
 
+### Structured Agent Responses — Better UX for delegated results
+
+Instead of raw text, agents return formatted responses with status, duration, file tree.
+
+Per karpathy-clean-code: YAGNI. Only build when real users ask for it.
+
+```
+┌─ backend ✅ ──────────────────────────────────────┐
+│ Task: Build Node.js REST API                       │
+│ Duration: 12s                                       │
+│ Files: 3 created                                    │
+│                                                     │
+│  📁 calculator-app/backend/                        │
+│  ├── server.js (75 lines)                          │
+│  ├── todoStore.js (67 lines)                       │
+│  └── package.json                                   │
+└────────────────────────────────────────────────────┘
+```
+
+Implementation:
+- `postDelegatedResult()` formats response before posting
+- `handleIncomingTask()` injects structured prompt into agent
+- Config: `responseFormat: "structured"` per role
+- No protocol changes — just better formatting
+
 ---
 
 ## Success Criteria
