@@ -726,14 +726,25 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const roleName = (args as string).trim();
       if (!roleName) {
-        // List available roles
+        // List available roles — show which are claimed
         const roles = loadTeamRoles();
         if (roles.size === 0) {
           ctx.ui.notify("No roles found in team.yaml. Create config/team.yaml with team.roles.", "warning");
           return;
         }
+        let claimedNames: string[] = [];
+        if (client) {
+          try {
+            const agents = await client.listAgents();
+            claimedNames = agents.map(a => a.name).filter(n => n !== card?.name);
+          } catch {}
+        }
         const list = Array.from(roles.entries())
-          .map(([name, r]) => `  ${name.padEnd(12)} [${r.skills.join(", ")}]${r.tags?.length ? " tags:[" + r.tags.join(", ") + "]" : ""}`)
+          .map(([name, r]) => {
+            const claimed = claimedNames.includes(name);
+            const tagStr = r.tags?.length ? " tags:[" + r.tags.join(", ") + "]" : "";
+            return `  ${name.padEnd(12)} [${r.skills.join(", ")}]${tagStr}${claimed ? " ⚠️ TAKEN" : ""}`;
+          })
           .join("\n");
         ctx.ui.notify(`Available roles:\n${list}\n\nUsage: /pipal-role <name>`, "info");
         return;
@@ -745,6 +756,25 @@ export default function (pi: ExtensionAPI) {
         const available = Array.from(roles.keys()).join(", ");
         ctx.ui.notify(`Unknown role "${roleName}". Available: ${available}`, "error");
         return;
+      }
+
+      // Check if role already claimed by another agent on the network
+      if (client) {
+        try {
+          const agents = await client.listAgents();
+          const claimed = agents.find(a => a.name === roleName && a.name !== card?.name);
+          if (claimed) {
+            const availableRoles = Array.from(roles.keys())
+              .filter(r => !agents.some(a => a.name === r && a.name !== card?.name));
+            ctx.ui.notify(
+              `⚠️ "${roleName}" is already online. Pick a different role:\n  Available: ${availableRoles.join(", ") || "none (all claimed)"}`,
+              "warning"
+            );
+            return;
+          }
+        } catch {
+          // Network not reachable — allow role pick anyway
+        }
       }
 
       // Update config
