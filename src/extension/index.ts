@@ -189,6 +189,7 @@ interface WorkflowStep {
 interface Workflow {
   name: string;
   description: string;
+  working_dir?: string;  // Directory for all steps in this workflow
   steps: WorkflowStep[];
 }
 
@@ -213,6 +214,7 @@ function loadWorkflows(): Map<string, Workflow> {
           workflows.set(key, {
             name: w.name || key,
             description: w.description || "",
+            working_dir: w.working_dir || "",
             steps: (w.steps || []).map((s: any) => ({
               role: s.role,
               task: s.task,
@@ -293,13 +295,18 @@ async function executeWorkflowIfMatch(
       continue;
     }
 
-    console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${step.task.slice(0, 50)}..."`);
+    // Prepend working_dir to task if workflow has one
+    const effectiveTask = matchedWorkflow.working_dir
+      ? `Work in ${matchedWorkflow.working_dir}/ directory. ${step.task}`
+      : step.task;
+
+    console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${effectiveTask.slice(0, 60)}..."`);
 
     // Execute delegation with result capture
     const taskId = await client.createTask({
       from: card.name,
       to: step.role,
-      task: step.task,
+      task: effectiveTask,
     });
 
     const result = await waitForTaskCompletion(client, taskId, 120_000, signal, onUpdate, card.name, target.name);

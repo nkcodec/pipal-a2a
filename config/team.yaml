@@ -49,28 +49,30 @@ workflows:
   btc-trading:
     name: "BTC Trading System"
     description: "Full trading system with backend, security, frontend"
+    working_dir: "btc-trading"
     steps:
       - role: backend
-        task: "Build exchange API adapter"
+        task: "Build exchange API adapter in btc-trading/backend/"
       - role: security
-        task: "Audit trading algorithm for vulnerabilities"
+        task: "Audit trading algorithm for vulnerabilities in btc-trading/"
         depends_on: [backend]
       - role: data
-        task: "Integrate market data feed"
+        task: "Integrate market data feed in btc-trading/"
         depends_on: [backend]
       - role: frontend
-        task: "Build trading UI with charts"
+        task: "Build trading UI with charts in btc-trading/frontend/"
         depends_on: [backend, data]
       - role: reviewer
-        task: "Final code review before production"
+        task: "Final code review before production in btc-trading/"
         depends_on: [frontend]
 
   todo-app:
     name: "Todo App"
     description: "Simple todo app with backend API and frontend UI"
+    working_dir: "todo-app"
     steps:
       - role: backend
-        task: "Build REST API for todo operations"
+        task: "Build REST API for todo operations in todo-app/backend/"
       - role: frontend
-        task: "Build todo UI"
+        task: "Build todo UI in todo-app/frontend/"
         depends_on: [backend]
