@@ -15,7 +15,7 @@ v0.1.2  ← streaming (SendStreamingMessage)
 v0.1.3  ← multi-turn (contextId)
 v0.1.4  ← auth (API Key) ✅
 v0.1.5  ← agent card signing + well-known discovery ✅
-v0.1.6  ← push notifications
+v0.1.6  ← push notifications ✅
 v0.1.7  ← Auto-Router (tag-based, no human delegation) ✅
 v0.1.8  ← gRPC binding → Future Ideas
 v0.1.9  ← OAuth2 + extended agent card
@@ -177,18 +177,20 @@ Standard discovery and trust (Google A2A spec §8).
 
 ---
 
-## v0.1.6 — Push Notifications
+## v0.1.6 — Push Notifications ✅
 
 Implement push notifications (Google A2A spec §3.1.7-3.1.10).
 
-- [ ] `CreateTaskPushNotificationConfig` method
-- [ ] `GetTaskPushNotificationConfig` method
-- [ ] `ListTaskPushNotificationConfigs` method
-- [ ] `DeleteTaskPushNotificationConfig` method
-- [ ] Webhook delivery of task completion events
-- [ ] `PushNotificationConfig` in AgentCard capabilities
+- [x] `CreateTaskPushNotificationConfig` — POST /push-configs
+- [x] `GetTaskPushNotificationConfig` — GET /push-configs/:id
+- [x] `ListTaskPushNotificationConfigs` — GET /push-configs
+- [x] `DeleteTaskPushNotificationConfig` — DELETE /push-configs/:id
+- [x] Webhook delivery of task completion events
+- [x] `PushNotificationConfig` type in core/types.ts
+- [x] TaskId filter — only fire for specific tasks
+- [x] Bearer token auth in webhook requests
 
-**Exit criteria:** Agents can receive task completion notifications via webhook.
+**Exit criteria:** Agents can receive task completion notifications via webhook. ✅ **SHIPPED**
 
 ---
 
