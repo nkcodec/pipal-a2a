@@ -126,6 +126,14 @@ export class SharedStateServer {
   // ── Agent Routes (REST — P2P extension) ─────────────────────────
 
   private setupAgentRoutes(): void {
+    // Well-known discovery — public, no auth required (Google A2A spec §8)
+    this.app.get("/.well-known/agent-card.json", (_req: Request, res: Response) => {
+      res.setHeader("A2A-Version", "1.0");
+      res.setHeader("Content-Type", "application/json");
+      const cards = Array.from(this.agents.values());
+      res.json(cards);
+    });
+
     this.app.get("/agents/:name", this.authMiddleware, (req: Request, res: Response) => {
       const card = this.agents.get(req.params.name);
       if (!card) return res.status(404).json({ error: "Agent not found" });
@@ -555,6 +563,16 @@ export class SharedStateClient {
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     const r = await fetch(`${this.baseUrl}/agents`, { headers });
     if (!r.ok) throw new Error(`List agents failed: ${r.status} ${r.statusText}`);
+    return r.json() as Promise<AgentCard[]>;
+  }
+
+  /**
+   * Discover agents via well-known endpoint (Google A2A spec §8).
+   * No auth required — public discovery.
+   */
+  async discover(): Promise<AgentCard[]> {
+    const r = await fetch(`${this.baseUrl}/.well-known/agent-card.json`);
+    if (!r.ok) throw new Error(`Discovery failed: ${r.status} ${r.statusText}`);
     return r.json() as Promise<AgentCard[]>;
   }
 

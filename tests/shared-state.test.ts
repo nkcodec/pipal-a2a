@@ -306,3 +306,72 @@ describe("Auth — API Key", () => {
     await expect(noKeyClient.listAgents()).rejects.toThrow("401");
   });
 });
+
+describe("Well-known discovery (v0.1.5)", () => {
+  const DISCOVERY_PORT = 18005;
+  let discoveryServer: SharedStateServer;
+  let discoveryUrl: string;
+
+  beforeAll(async () => {
+    discoveryServer = new SharedStateServer();
+    discoveryUrl = await discoveryServer.start(DISCOVERY_PORT);
+  });
+
+  afterAll(async () => {
+    await discoveryServer.stop();
+  });
+
+  it("GET /.well-known/agent-card.json returns empty array when no agents", async () => {
+    const client = new SharedStateClient(discoveryUrl);
+    const cards = await client.discover();
+    expect(cards).toEqual([]);
+  });
+
+  it("GET /.well-known/agent-card.json returns registered agents", async () => {
+    const client = new SharedStateClient(discoveryUrl);
+    const card = createAgentCard(
+      "discovery-agent",
+      discoveryUrl,
+      [createSkill("test", "Test", "Test skill")],
+      { description: "Discovery test" }
+    );
+    await client.register(card);
+
+    const cards = await client.discover();
+    expect(cards).toHaveLength(1);
+    expect(cards[0].name).toBe("discovery-agent");
+    expect(cards[0].skills[0].id).toBe("test");
+  });
+
+  it("discovery works without API key (public)", async () => {
+    // Add auth to server
+    discoveryServer.addApiKey("secret-key");
+
+    // Register with key
+    const authClient = new SharedStateClient(discoveryUrl, "secret-key");
+    await authClient.register(
+      createAgentCard("auth-agent", discoveryUrl, [createSkill("auth", "Auth", "Auth test")], { description: "" })
+    );
+
+    // Discover WITHOUT key — should still work (public)
+    const noKeyClient = new SharedStateClient(discoveryUrl);
+    const cards = await noKeyClient.discover();
+    expect(cards.length).toBeGreaterThanOrEqual(1);
+    expect(cards.some((c) => c.name === "auth-agent")).toBe(true);
+  });
+
+  it("discovery returns all registered agents", async () => {
+    const client = new SharedStateClient(discoveryUrl, "secret-key");
+    await client.register(
+      createAgentCard("agent-a", discoveryUrl, [createSkill("a", "A", "")], { description: "" })
+    );
+    await client.register(
+      createAgentCard("agent-b", discoveryUrl, [createSkill("b", "B", "")], { description: "" })
+    );
+
+    const cards = await client.discover();
+    const names = cards.map((c) => c.name);
+    expect(names).toContain("agent-a");
+    expect(names).toContain("agent-b");
+  });
+});
