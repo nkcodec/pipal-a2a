@@ -22,7 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readFileSync } from "fs";
-import { load } from "js-yaml";
+import { load, DEFAULT_SAFE_SCHEMA } from "js-yaml";
 import { resolve } from "path";
 import {
   createAgentCard,
@@ -69,7 +69,7 @@ function loadConfig(): ExtensionConfig {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      config = load(content) as ExtensionConfig;
+      config = load(content, { schema: DEFAULT_SAFE_SCHEMA }) as ExtensionConfig;
       break;
     } catch {
       continue;
@@ -123,7 +123,7 @@ function loadTeamRoles(): Map<string, TeamRole> {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      const data = load(content) as any;
+      const data = load(content, { schema: DEFAULT_SAFE_SCHEMA }) as any;
       if (data?.team?.roles) {
         for (const [key, val] of Object.entries(data.team.roles)) {
           const r = val as any;

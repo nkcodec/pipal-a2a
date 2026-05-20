@@ -248,7 +248,7 @@ export class SharedStateServer {
         id?: string;
         contextId?: string;
       };
-      if (!task) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "task is required" };
+      if (!task || typeof task !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "task is required and must be a string" };
 
       // Get agentName from params if provided (for A2A compliance)
       const agentName = (params as Record<string, unknown>).agentName as string | undefined;
@@ -296,7 +296,7 @@ export class SharedStateServer {
     // tasks/cancelTask — cancel a task
     this.rpc.register("tasks/cancelTask", async (params) => {
       const { taskId } = params as { taskId?: string };
-      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+      if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
 
       const task = this.tasks.get(taskId);
       if (!task) return { task: null };
@@ -329,10 +329,16 @@ export class SharedStateServer {
         result?: unknown;
         error?: string;
       };
-      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+      if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
 
       const task = this.tasks.get(taskId);
       if (!task) return { task: null };
+
+      // State machine validation — reject transitions from terminal states
+      const terminalStates = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"]);
+      if (terminalStates.has(task.status.state)) {
+        throw { code: JSONRPC_CODES.TASK_NOT_CANCELABLE, message: `Task '${taskId}' is already in terminal state: ${task.status.state}` };
+      }
 
       const finalState = state ?? "TASK_STATE_COMPLETED";
       const updated: StoredTask = {
@@ -393,7 +399,7 @@ export class SharedStateServer {
     // tasks/streamChunk — stream a text chunk for a running task (SSE broadcast)
     this.rpc.register("tasks/streamChunk", async (params) => {
       const { taskId, chunk } = params as { taskId?: string; chunk?: string };
-      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
+      if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
       if (!chunk) return { ok: true }; // empty chunk, skip
 
       const task = this.tasks.get(taskId);
@@ -418,8 +424,8 @@ export class SharedStateServer {
         role?: string;
         requireInput?: boolean;
       };
-      if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
-      if (!message) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "message is required" };
+      if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
+      if (!message || typeof message !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "message is required and must be a string" };
 
       const task = this.tasks.get(taskId);
       if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
@@ -504,7 +510,7 @@ export class SharedStateServer {
         this.sseClients.delete(clientId);
       });
 
-      res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
+      res.write(`event: connected\ndata: ${JSON.stringify({ clientId })}\n\n`);
     });
 
     // ── Streaming SSE for specific task (Google A2A: task subscription) ──
@@ -533,7 +539,7 @@ export class SharedStateServer {
         this.taskStreams.delete(clientId);
       });
 
-      res.write(`event: connected\ndata: {"clientId":"${clientId}"}\n\n`);
+      res.write(`event: connected\ndata: ${JSON.stringify({ clientId })}\n\n`);
 
       // Catch-up: if task is already terminal, send final event
       const t2 = this.tasks.get(taskId);

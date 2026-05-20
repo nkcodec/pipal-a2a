@@ -76,7 +76,7 @@ export interface TaskRouter {
  * Default implementation: SkillMatcher (in src/builtin/)
  */
 export interface RoutingStrategy {
-  select(task: Task, candidates: AgentCard[]): AgentCard | undefined;
+  select(task: Task, candidates: AgentCard[], excludeSelf?: string): AgentCard | undefined;
   priority: number;
 }
 

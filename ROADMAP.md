@@ -20,7 +20,9 @@ v0.1.7  ← Auto-Router (tag-based, no human delegation) ✅
 v0.1.8  ← gRPC binding → Future Ideas
 v0.1.9  ← OAuth2 + extended agent card → Future Ideas
 v0.2.0  ← essential A2A v1.0 features ✅
-v0.2.1  ← = "v1.0" — full Google A2A spec compliance
+v0.2.1  ← security hardening (Tier 1 fixes) ✅
+v0.2.2  ← infrastructure reliability (Tier 2 fixes)
+v0.3.0  ← = "v1.0" — full Google A2A spec compliance
 ```
 
 **Rule:** `v0.2.0` is the milestone where essential A2A v1.0 features work for real projects.
@@ -261,6 +263,36 @@ Per karpathy-clean-code: routing is configuration, not core.
 **Exit criteria:** User says "build a todo app", frontend agent auto-routes to backend + frontend without human telling it whom to delegate to. ✅ **SHIPPED**
 
 Per karpathy-clean-code: Core (Task lifecycle) stays frozen. Router is infrastructure. Config activates, not defines. ✅ **SHIPPED**
+
+---
+
+## v0.2.1 — Security Hardening ✅ SHIPPED
+
+Tier 1 critical + high fixes. Karpathy-clean-code principle: protect the frozen core first.
+
+**Per karpathy-clean-code:** Core (`src/core/types.ts`) is frozen — never touched. SDK is a stability promise — only backward-compatible changes. Infrastructure fixes must be surgical.
+
+**Fixes applied (5):**
+- [x] C-1: Unsafe YAML parsing → `DEFAULT_SAFE_SCHEMA` (arbitrary code execution prevented)
+- [x] H-7: Task state machine validation → terminal states now rejected on `resolveTask`
+- [x] C-3: SSE injection via `clientId` → replaced interpolation with `JSON.stringify()`
+- [x] H-3: RPC input validation → `typeof` checks on 6 RPC handlers
+- [x] H-4: SmartRouter SDK mismatch → `excludeSelf?` added to `RoutingStrategy` interface
+
+**Files modified:** `src/extension/index.ts`, `src/infrastructure/shared-state.ts`, `src/sdk/index.ts`
+**Tests:** 98 passed, 0 failed (no behavior change)
+**Reports:** `backend-review.md` (28 issues found), `tier1-fix-report.md` (fix details)
+
+---
+
+## v0.2.2 — Infrastructure Reliability (Planned)
+
+Tier 2 fixes — reliability bugs that don't corrupt core but crash the system or leak data.
+
+- [ ] H-1: TOCTOU race in HOST/JOIN detection → add try/catch fallback for `EADDRINUSE`
+- [ ] C-4: Unbounded memory growth → TTL-based task cleanup + SSE liveness check
+- [ ] H-2: No request body size limit → `express.json({ limit: '1mb' })`
+- [ ] C-2: SSRF via push notification webhooks → URL allowlist + block RFC 1918
 
 ---
 
