@@ -12,13 +12,20 @@ Terminal 3 (frontend): builds the UI
   └─→ results flow back to planner
 ```
 
-## Quick Start
-
-### 1. Install
+## Install
 
 ```bash
-cd your-project
-npm install pipal-a2a
+# From npm (when published)
+pi install npm:pipal-a2a
+
+# From GitHub
+pi install git:github.com/YOUR_USERNAME/pipal-a2a
+
+# Try without installing
+pi -e git:github.com/YOUR_USERNAME/pipal-a2a
+
+# Local development
+pi install ./path/to/pipal-a2a
 ```
 
 ### 2. Open terminals

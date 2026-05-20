@@ -26,6 +26,7 @@
     "vitest": "^4.1.6"
   },
   "keywords": [
+    "pi-package",
     "a2a",
     "agent",
     "multi-agent",
