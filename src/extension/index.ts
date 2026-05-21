@@ -34,7 +34,6 @@ import { SharedStateServer, SharedStateClient, type StoredTask } from "../infras
 import { InMemoryAgentRegistry } from "../application/registry.js";
 import { DefaultTaskRouter } from "../application/router.js";
 import { SmartRouter } from "../builtin/smart-router.js";
-import { registerWriteMempalaceTool } from "./mempalace-store.js";
 
 // ─────────────────────────────────────────────────────────────────
 // Config
@@ -562,9 +561,6 @@ export default function (pi: ExtensionAPI) {
   let lastStreamedLength = 0;
   let resultTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Register MemPalace store tool
-  registerWriteMempalaceTool(pi);
-
   // ───────────────────────────────────────────────────────────────
   // Lifecycle: session_start
   // ───────────────────────────────────────────────────────────────
@@ -1022,19 +1018,28 @@ export default function (pi: ExtensionAPI) {
           const resultText = result.artifacts?.[0]?.parts?.[0]?.text
             ?? JSON.stringify(result.artifacts, null, 2);
 
+          const durationMs = result.artifacts?.[0]
+            ? new Date(result.status.timestamp).getTime() - (result.metadata?.createdAt as number || 0)
+            : 0;
+
+          const mempalaceReminder = card.name !== targetCard.name
+            ? `\n\n🧠 **MemPalace Reminder:** Call MemPalace tools to update shared/project-status:\n` +
+              `1. mempalace_add_drawer({ wing: "wing_pipal_a2a", room: "shared", content: "..." })\n` +
+              `2. mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
+              `3. mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "wing_pipal_a2a" })`
+            : "";
+
           return {
             content: [{
               type: "text" as const,
-              text: `**Result from ${targetCard.name}:**\n\n${resultText}`,
+              text: `**Result from ${targetCard.name}:**\n\n${resultText}${mempalaceReminder}`,
             }],
             details: {
               taskId,
               from: card.name,
               to: targetCard.name,
               state: result.status.state,
-              durationMs: result.artifacts?.[0]
-                ? new Date(result.status.timestamp).getTime() - (result.metadata?.createdAt as number || 0)
-                : 0,
+              durationMs,
             },
           };
         } else {
