@@ -880,6 +880,18 @@ export default function (pi: ExtensionAPI) {
   // ───────────────────────────────────────────────────────────────
   // Tool: pipal_a2a_delegate
   // ───────────────────────────────────────────────────────────────
+  // Build MemPalace guidelines only if enabled (config activates, not defines)
+  const mempalaceGuidelines = config.mempalace?.enabled ? [
+    "",
+    `[MemPalace] BEFORE delegating: call mempalace_search({ query: <project>, wing: "${config.mempalace.wing}", room: "${config.mempalace.sharedRoom}" }) to check for prior work.`,
+    "[MemPalace] BEFORE delegating: call mempalace_kg_query({ entity: <project> }) to find known facts about the project.",
+    `[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: "${config.mempalace.wing}", room: "${config.mempalace.sharedRoom}", content: <status> }) to update shared/project-status.`,
+    "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
+    `[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★", wing: "${config.mempalace.wing}" }) to log the decision.`,
+    "[MemPalace] Write ONLY to shared/ — NOT to per-agent rooms. Per-agent rooms are scratch only.",
+    "[MemPalace] Total: 5 calls (search + kg_query before; add_drawer + kg_add + diary_write after).",
+  ] : [];
+
   pi.registerTool({
     name: "pipal_a2a_delegate",
     label: "Delegate to Agent (A2A)",
@@ -892,19 +904,6 @@ export default function (pi: ExtensionAPI) {
       "The other agent's LLM will process the task in its own terminal (the user can see it working). " +
       "Waits up to 2 minutes for the result.",
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
-    // Build MemPalace guidelines only if enabled (config activates, not defines)
-    const mempalaceGuidelines = config.mempalace?.enabled ? [
-      // MemPalace integration (Option D: LLM-driven)
-      "",
-      "[MemPalace] BEFORE delegating: call mempalace_search({ query: <project>, wing: "${config.mempalace.wing}", room: "${config.mempalace.sharedRoom}" }) to check for prior work.",
-      "[MemPalace] BEFORE delegating: call mempalace_kg_query({ entity: <project> }) to find known facts about the project.",
-      `[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: "${config.mempalace.wing}", room: "${config.mempalace.sharedRoom}", content: <status> }) to update shared/project-status.`,
-      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
-      `[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★", wing: "${config.mempalace.wing}" }) to log the decision.`,
-      "[MemPalace] Write ONLY to shared/ — NOT to per-agent rooms. Per-agent rooms are scratch only.",
-      "[MemPalace] Total: 5 calls (search + kg_query before; add_drawer + kg_add + diary_write after).",
-    ] : [];
-
     promptGuidelines: [
       "IMPORTANT: You are an ORCHESTRATOR — NEVER write code or create project files yourself. ONLY delegate via pipal_a2a_delegate.",
       "Before delegating: call pipal_a2a_agents() to find correct agent names. Then use to=<name>.",
