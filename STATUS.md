@@ -69,46 +69,43 @@ config/
 ## MemPalace Integration (v0.3.1)
 
 **Architecture:** Option D — LLM-driven MCP calls
+**Room Strategy:** shared/ ONLY for cross-agent docs. Per-agent rooms = scratch only.
+
 ```
-wing_a2a/                        ← ONE wing for agent system
-├── {agent_role}/                ← per-agent room
-│   └── drawer: "project-name"  ← project = just a drawer
-├── diary/                       ← per-agent diary entries
-└── Knowledge Graph (shared facts)
+wing_a2a/
+├── shared/            ← ONLY for cross-agent docs
+│   ├── project-status  ← WHO DID WHAT (agent writes own section)
+│   ├── roadmap         ← PLANNER's planning docs
+│   ├── decisions       ← KEY DECISIONS LOG (append only, all agents write)
+│   └── ownership-map   ← WHO OWNS WHAT (planner manages)
+├── {agent}/           ← SCRATCH ONLY (private notes, NOT project docs)
+└── diary/             ← ALL agents write (timestamped)
 ```
 
-**Hook flow (LLM-driven, NOT code-driven):**
+**Hook flow (LLM-driven, write to shared/ ONLY):**
 ```
 BEFORE delegate:
-  1. mempalace_search({ query, wing: "wing_a2a", room: <role> })
+  1. mempalace_search({ wing: "wing_a2a", room: "shared" })
   2. mempalace_kg_query({ entity: <project> })
 
 AFTER delegate:
-  3. mempalace_add_drawer({ wing: "wing_a2a", room: <role>, content })
+  3. mempalace_add_drawer({ wing: "wing_a2a", room: "shared", content }) → shared/project-status
   4. mempalace_kg_add({ subject, predicate: "has_<role>", object: "completed" })
   5. mempalace_diary_write({ agent_name, entry, wing: "wing_a2a" })
 ```
 
-**Why Option D:** Extensions can't access pi's MCP client. The LLM already has MCP access. Per karpathy-clean-code: prompts > code.
+**Why shared/ only:**
+- No race conditions — agent writes to their SECTION only in project-status
+- No confusion — one place to write, one place to read
+- Ownership map prevents multi-agent conflicts
 
-**Live test verified:** ✅ All 5 MCP calls work. Data stored and retrievable.
+**Rooms created:**
+- shared/ownership-map ✅
+- shared/project-status ✅
+- shared/roadmap ✅
+- shared/decisions ✅
 
-**Files created:**
-- `src/extension/mempalace-types.ts` — pure functions (resolveProjectName, mergeDrawerContent)
-- `src/extension/mempalace-hooks.ts` — PreHook/PostHook logic (unused, kept for Layer 2 tests)
-- `src/extension/mempalace.ts` — MempalaceIntegration class (unused, kept for future)
-- `tests/mempalace-core.test.ts` — 23 core tests (pure functions, zero mocks)
-
-**Key decisions:**
-- Extension provides promptGuidelines, LLM calls MCP tools directly (NOT code-driven)
-- Client-side merge: read-before-write, not server-side
-- Best-effort: Promise.allSettled, never block agent execution
-- wing = wing_a2a (one wing for agent system, cross-project learning is a feature)
-- Per-agent rooms for noise-free isolation
-
-**Option A rejected:** HTTP direct to ChromaDB — couples to backend internals, breaks if MemPalace switches backends.
-
-**Tests:** 121 passed (145 total incl. task-clarity)
+**Per-agent rooms (planner/, backend/, reviewer/) = SCRATCH only**
 
 ## Workflows (team.yaml)
 
