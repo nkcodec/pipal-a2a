@@ -6,7 +6,8 @@
 ## Current Version: v0.3.1
 
 ```
-v0.3.1 ✅  Mempalace integration (agent memory & shared KB) — Option D (LLM-driven)
+v0.3.1 ✅  MemPalace integration (agent memory & shared KB) — Option D (LLM-driven) + TASK reminder
+v0.3.1 ✅  Task clarity guard (reject vague tasks with Wh-questions)
 v0.3.1 ✅  Task clarity guard (reject vague tasks with Wh-questions)
 v0.3.0 ✅  Workflow PreHook (automated multi-step workflows)
 v0.2.4 ✅  .env file support
