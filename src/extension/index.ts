@@ -648,7 +648,16 @@ export default function (pi: ExtensionAPI) {
     console.log(`[pipal-a2a] ✅ Online as "${card.name}" [${skillList}] tags:[${tagList}]`);
     console.log(`[pipal-a2a] pipal_a2a tools: agents() | my_card() | delegate() | status()`);
     console.log(`[pipal-a2a] Check agents() + my_card() BEFORE delegating.`);
-    console.log(`[pipal-a2a] 🧠 MemPalace: LLM-driven (check guidelines before delegating)`);
+
+    // Pre-flight check: MemPalace enabled but server healthy?
+    if (config.mempalace?.enabled) {
+      console.log(`[pipal-a2a] 🧠 MemPalace: enabled (${config.mempalace.wing}/${config.mempalace.sharedRoom}) — checking...`);
+      // Note: MCP availability is LLM-level. We can't sync-call MCP tools here.
+      // Agents will report MEMPALACE FAILED if tools are unavailable at runtime.
+      console.log(`[pipal-a2a] ⚠️  If MemPalace MCP not installed/running, agents will report MEMPALACE FAILED.`);
+      console.log(`[pipal-a2a]    Install: npm install -g mempalace-mcp`);
+      console.log(`[pipal-a2a]    Start: mempalace-mcp --palace <path>`);
+    }
   });
 
   // ───────────────────────────────────────────────────────────────
