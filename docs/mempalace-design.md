@@ -1,4 +1,4 @@
-# MemPalace Integration Design — Final v3
+# MemPalace Integration Design — v3.1 (Final)
 
 ## Architecture
 
@@ -73,24 +73,17 @@ await mcp.call("mempalace_mempalace_diary_write", { entry });
 
 ### Fallback if MCP not available
 
-If pi's MCP context is not available (older pi version), use direct HTTP to MemPalace's local server:
+> ⚠️ **ASPIRATIONAL** — This fallback path is placeholder pseudocode.
+> MCP servers use JSON-RPC over stdio/SSE, not REST over HTTP.
+> This will NOT work against a real MCP server as-is.
+> If pi's MCP context is unavailable, hooks log a warning and proceed without MemPalace.
+> Remove this fallback if pi always provides MCP context.
 
 ```typescript
-// Fallback: direct HTTP to MemPalace MCP server
-const MEMPALACE_URL = process.env.MEMPALACE_URL || "http://localhost:3002";
-
-async function mcpCall(tool: string, args: object) {
-  // Try pi MCP context first
-  if (context?.mcp) {
-    return context.mcp.call(`mempalace_mempalace_${tool}`, args);
-  }
-  // Fallback: direct HTTP
-  const response = await fetch(`${MEMPALACE_URL}/tools/${tool}`, {
-    method: "POST",
-    body: JSON.stringify(args),
-  });
-  return response.json();
-}
+// PLACEHOLDER — not functional against real MCP servers
+// MCP uses stdio/SSE JSON-RPC, not REST HTTP
+// If needed, implement proper MCP JSON-RPC client here
+const MEMPALACE_URL = process.env.MEMPALACE_URL || "";
 ```
 
 ---
@@ -206,12 +199,14 @@ If MemPalace is DOWN:
 ```
 Agent completed: Built Express API with 4 routes, 8 files
 
-PostHook runs (3 calls, allSettled, best-effort):
+PostHook runs (4 calls, allSettled, best-effort):
 
-  1. add_drawer(wing, room=agentRole, content)
-     → Built-in dedup: if drawer exists, auto-updates
-     → No separate check_duplicate call (removed — was racy)
-     → Content is merged by add_drawer's duplicate detection
+  1. search(projectName, wing, room=agentRole)
+     → Find existing drawer for this project+agent
+     → If found: mergeDrawerContent(old, new) → update_drawer(merged)
+     → If not found: add_drawer(new)
+     → This is a read-before-write: 1 search + 1 write = 2 calls
+     → Client-side merge (not server-side) — we control the merge logic
 
   2. queryThenInvalidate(projectName, predicate, newObject)
      → kg_query to find old value
@@ -228,6 +223,12 @@ PostHook runs (3 calls, allSettled, best-effort):
 
 If MemPalace is DOWN:
   → Log warning, caller still gets result
+
+MERGE STRATEGY DECISION: Client-side merge.
+  - search existing → merge in code → update_drawer with merged content.
+  - NOT relying on add_drawer's built-in dedup (it replaces, doesn't merge).
+  - This gives us full control over the History section preservation.
+  - Cost: 1 extra search call per PostHook (6 total calls instead of 5).
 ```
 
 ---
@@ -389,8 +390,8 @@ Wings and rooms are NOT hardcoded. Created on-demand.
 | Metric | Value |
 |--------|-------|
 | PreHook calls | 2 (parallel) |
-| PostHook calls | 3 (allSettled) |
-| Total per task | 5 calls |
+| PostHook calls | 4 (allSettled: search+merge, kg, diary, shared?) |
+| Total per task | 6 calls |
 | Latency added | <500ms (LLM takes 30-60s) |
 | Agent decisions | 0 (wing=project, room=role) |
 | Blocking on failure | Never — allSettled + try/catch |
@@ -432,6 +433,17 @@ tests/
 
 ---
 
+## v2 → v3 Migration
+
+**Wing changed from `wing_a2a` (all projects) to `wing_{project}` (per project).**
+
+- Existing `wing_a2a` data remains readable but is orphaned (no new writes)
+- To migrate: re-create drawers under new `wing_{project}` wings
+- Or: leave old data, new workflows write to new wings automatically
+- No data loss — old wings still searchable manually
+
+---
+
 ## Evolution Rules
 
 ```
@@ -460,6 +472,6 @@ Diary per task          →  Temporal audit trail with task text
 Best-effort allSettled  →  Partial success OK, never block
 MCP via pi context      →  Native MCP access with HTTP fallback
 Project fallback        →  workflow.name → cwd → "scratch"
-5 calls total           →  <500ms overhead
+6 calls total           →  <500ms overhead
 Zero decisions          →  wing=project, room=role, drawer=auto
 ```
