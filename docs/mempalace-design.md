@@ -321,7 +321,7 @@ async function writeToShared(
 
 ## Drawer Format
 
-One drawer per project per agent. Content merged via add_drawer's built-in dedup.
+One drawer per project per agent. Content merged via client-side read-before-write.
 
 ```markdown
 # {project_name}
