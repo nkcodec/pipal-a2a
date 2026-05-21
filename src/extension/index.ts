@@ -770,6 +770,17 @@ export default function (pi: ExtensionAPI) {
     const skill = data?.skill;
     const description = data?.task || "";
 
+    // Inject MemPalace reminder into taskMessage sent to agent
+    const mempalaceReminder = from !== card.name
+      ? "\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n" +
+        "1. mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
+        "2. mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
+        "3. mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n" +
+        "4. Reply with your result ONLY after calling the above tools."
+      : "";
+
+    console.log(`[pipal-a2a] 🔍 handleIncomingTask description length: ${description.length}, reminder: ${mempalaceReminder.length} chars`);
+
     if (!taskId) {
       console.error(`[pipal-a2a] ❌ handleIncomingTask: no taskId in data:`, JSON.stringify(data).slice(0, 200));
       return;
@@ -806,7 +817,9 @@ export default function (pi: ExtensionAPI) {
 
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
-      `Please complete this task using your tools. Your response will be sent back to ${from}.`;
+      `Please complete this task using your tools. Your response will be sent back to ${from}.\n\n${mempalaceReminder}`;
+
+    console.log(`[pipal-a2a] 📩 taskMessage with reminder: ${taskMessage.length} total chars, reminder ${mempalaceReminder.length} chars`);
 
     try {
       pi.sendUserMessage(taskMessage);
@@ -948,18 +961,12 @@ export default function (pi: ExtensionAPI) {
 
         console.log(`[pipal-a2a] 🎯 Routing to ${targetCard.name} (online: ${onlineAgents.map((a: AgentCard) => a.name).join(", ")})`);
 
-        const mempalaceReminder = "\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n" +
-          "1. mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
-          "2. mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
-          "3. mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n\n" +
-          "Reply with your result.";
-
-        // Submit task to shared state (append reminder to task)
+        // Submit task to shared state
         const taskId = await client.createTask({
           from: card.name,
           to: targetCard.name,
           skill: params.skill,
-          task: `${params.task}${mempalaceReminder}`,
+          task: params.task,
         });
 
         console.log(`[pipal-a2a] 📤 Task ${taskId.slice(0, 8)} → ${targetCard.name}: "${params.task.slice(0, 50)}..."`);
