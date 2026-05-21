@@ -1,55 +1,62 @@
-# MemPalace Integration Design — v3.1 (Final)
+# MemPalace Integration Design — v3.2 (Final)
 
 ## Architecture
 
 ```
-wing_{project}/                    ← Wing = project (hard isolation)
-├── backend/                       ← room = agent role (auto from team.yaml)
+wing_a2a/                        ← One wing for pipal-a2a system
+├── backend/                     ← room = agent role (auto from team.yaml)
+│   ├── drawer: "btc-trading"   ← project is just a drawer
+│   ├── drawer: "todo-app"      ← another drawer
+│   └── drawer: "scratch"       ← ad-hoc tasks
 ├── frontend/
 ├── security/
 ├── data/
 ├── reviewer/
 ├── planner/
-└── shared/                        ← cross-agent documents
+└── shared/                      ← cross-agent documents
 
-+ Knowledge Graph (shared across ALL wings)
++ Knowledge Graph (shared across agents)
 + Diary (per-agent temporal log, built-in AAAK format)
-
-Examples:
-  wing_btc_trading/
-  ├── backend/
-  ├── frontend/
-  └── shared/
-
-  wing_todo_app/
-  ├── backend/
-  ├── frontend/
-  └── shared/
 ```
 
-### Why Wing = Project (changed from v2)
+### Why Wing = pipal-a2a (not per-project)
 
-v2 used `wing_a2a` for all projects. This gave **soft isolation** — search could cross-pollinate between btc-trading and todo-app because both had "Express API" in the `backend/` room.
+The wing represents the **agent system's memory**, not the project.
+Demo apps (btc-trading, todo-app) are temporary — they come and go.
+Agent knowledge (patterns, lessons, preferences) is permanent.
 
-v3 uses `wing_{project}` per project. This gives **hard isolation** — MemPalace's `search` API filters by wing natively. btc-trading searches NEVER return todo-app results.
+| Concern | wing=project (v3.1) | wing_a2a (v3.2) |
+|---------|---------------------|------------------|
+| Wing count | N wings for N projects | 1 wing |
+| Cross-project learning | Isolated — can't learn from btc-trading when building todo-app | Backend finds useful patterns across projects |
+| Demo apps | Permanent wings for throwaway code | Just drawers, disposable |
+| Search isolation | Hard filter (overkill) | Query includes project name (sufficient) |
+| What matters | Project isolation | Agent memory |
 
+Cross-project overlap is a **feature**. When backend builds todo-app,
+finding Express patterns from btc-trading helps, not hurts.
+
+Search is scoped by project name in the query:
 ```
-v2: search("btc-trading", room="backend")  → soft, semantic matching
-v3: search("btc-trading", room="backend", wing="wing_btc_trading")  → hard, exact filter
+search("btc-trading backend express", room="backend")
+  → Primary: btc-trading drawer (exact match)
+  → Secondary: todo-app patterns (useful overlap)
 ```
 
 ---
 
 ## Design Principles
 
-1. **Wing = project** — hard isolation between projects
+1. **One wing for the system** — wing_a2a holds all agent memory
 2. **Room = agent role** — auto-created from team.yaml, noise-free
-3. **Shared room** — cross-agent documents per project
-4. **One drawer per agent per project** — merged each session, not replaced
-5. **KG for cross-agent facts** — structured, queryable, global
-6. **Diary for temporal log** — per-session, AAAK format
-7. **Zero decisions per write** — wing=project, room=role, drawer=auto
-8. **Best-effort hooks** — never block agent execution, failures logged only
+3. **Drawer = project** — project name is content, not structure
+4. **Shared room** — cross-agent documents per project
+5. **One drawer per agent per project** — merged each session, not replaced
+6. **KG for cross-agent facts** — structured, queryable, global
+7. **Diary for temporal log** — per-session, AAAK format
+8. **Zero decisions per write** — wing=fixed, room=role, drawer=project
+9. **Best-effort hooks** — never block agent execution, failures logged only
+10. **Cross-project learning** — agents benefit from past projects
 
 ---
 
@@ -95,9 +102,9 @@ Every hook input maps 1:1 to a MemPalace parameter. Zero ambiguity.
 ```
 Hook Input              →  MemPalace Param
 ───────────────────────────────────────────
-projectName             →  wing name (wing_btc_trading)
-step.role               →  room name (backend, frontend, etc.)
-projectName             →  search query (scoped to wing)
+step.role               →  room name (from team.yaml)
+projectName             →  search query (scopes results)
+projectName             →  drawer content (project = drawer, not wing)
 result text             →  drawer content
 ```
 
@@ -114,15 +121,7 @@ Priority:
   3. "scratch"                      → fallback for unresolvable projects
 ```
 
-Wing name derived from project:
-
-```typescript
-function resolveWingName(projectName: string): string {
-  return `wing_${projectName.replace(/-/g, "_")}`;
-}
-// "btc-trading" → "wing_btc_trading"
-// "todo-app" → "wing_todo_app"
-```
+Wing is always `wing_a2a`. Project name scopes the search and drawer content.
 
 ---
 
@@ -185,10 +184,10 @@ PreHook runs (2 calls, parallel, best-effort):
      → "has_backend: false"     → Not built yet, OK to proceed
      → "built_by: null"         → No conflicts with other agents
 
-  2. search(projectName, wing=resolveWingName(project), room=agentRole)
-     → Hard-filtered to project wing + agent room
-     → Zero cross-project contamination
-     → Returns only relevant context
+  2. search(projectName, room=agentRole)
+     → Scoped to agent's own room
+     → Project name in query scopes results
+     → Cross-project patterns may surface (feature, not bug)
 
 If MemPalace is DOWN:
   → Log warning, agent proceeds without context
@@ -201,7 +200,7 @@ Agent completed: Built Express API with 4 routes, 8 files
 
 PostHook runs (4 calls, allSettled, best-effort):
 
-  1. search(projectName, wing, room=agentRole)
+  1. search(projectName, room=agentRole)
      → Find existing drawer for this project+agent
      → If found: mergeDrawerContent(old, new) → update_drawer(merged)
      → If not found: add_drawer(new)
@@ -218,7 +217,7 @@ PostHook runs (4 calls, allSettled, best-effort):
      → Includes task text for temporal search
 
   4. (optional) If cross-agent document detected:
-     → add_drawer(wing, room="shared", document)
+     → add_drawer("wing_a2a", "shared", document)
      → Ownership check via sharedWriteOwnership map
 
 If MemPalace is DOWN:
@@ -410,7 +409,7 @@ src/extension/
 config/pipal-a2a.yaml:
   mempalace:
     enabled: true
-    wing_prefix: "wing_"     ← prefix for wing names
+    wing: "wing_a2a"       ← fixed wing name
     autoQuery: true
     autoStore: true
 ```
@@ -435,12 +434,11 @@ tests/
 
 ## v2 → v3 Migration
 
-**Wing changed from `wing_a2a` (all projects) to `wing_{project}` (per project).**
+**v2 used `wing_a2a` (correct). v3.1 changed to `wing_{project}` (wrong). v3.2 reverts to `wing_a2a`.**
 
-- Existing `wing_a2a` data remains readable but is orphaned (no new writes)
-- To migrate: re-create drawers under new `wing_{project}` wings
-- Or: leave old data, new workflows write to new wings automatically
-- No data loss — old wings still searchable manually
+- No migration needed — wing_a2a was always the right choice
+- v3.1 was an overreaction to cross-project contamination concern
+- Cross-project learning is a feature, not a bug
 
 ---
 
@@ -463,15 +461,17 @@ v0.3.3:  Split shared into typed sub-drawers
 ## Summary
 
 ```
-Wing = project          →  Hard isolation between projects (changed from v2)
+Wing = wing_a2a         →  One wing for the agent system
 Room = agent role       →  No noise, auto-created from team.yaml
+Drawer = project        →  Project is content, not structure
 Shared room             →  Cross-agent docs with write ownership
 One drawer/agent/project → Merged, never replaced
 KG + queryThenInvalidate → Structured facts, no pollution
 Diary per task          →  Temporal audit trail with task text
 Best-effort allSettled  →  Partial success OK, never block
-MCP via pi context      →  Native MCP access with HTTP fallback
+MCP via pi context      →  Native MCP access (HTTP fallback aspirational)
 Project fallback        →  workflow.name → cwd → "scratch"
 6 calls total           →  <500ms overhead
-Zero decisions          →  wing=project, room=role, drawer=auto
+Zero decisions          →  wing=fixed, room=role, drawer=project
+Cross-project learning  →  Agents benefit from past projects
 ```
