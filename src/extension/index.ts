@@ -182,6 +182,93 @@ function loadConfig(): ExtensionConfig {
  */
 
 // ─────────────────────────────────────────────────────────────────
+// Task Clarity Guard
+// Per karpathy-clean-code: Code is the safety net when prompts fail.
+// Rejects vague tasks with specific Wh-questions the sender must answer.
+// ─────────────────────────────────────────────────────────────────
+
+interface ClarityAssessment {
+  reject: boolean;
+  reason: string;
+  questions: string[];
+}
+
+/** Vague phrases that indicate insufficient clarity */
+const VAGUE_PATTERNS: Array<{ pattern: RegExp; reason: string; questions: string[] }> = [
+  {
+    pattern: /^(build|make|create|fix|improve|update|change|do)\s*(something|it|that|this|stuff|things?)?\s*$/i,
+    reason: "Task has no specific subject",
+    questions: [
+      "WHAT exactly should be built, fixed, or changed?",
+      "WHERE should the output go (file path, directory)?",
+      "WHAT are the specific requirements or acceptance criteria?",
+    ],
+  },
+  {
+    pattern: /^(make|build)\s+(it|the app|the code|the project)\s+(better|good|cool|nice|awesome|great|work)\s*$/i,
+    reason: "Task has subjective goal with no measurable criteria",
+    questions: [
+      "WHAT specific improvement is needed (performance, UX, security)?",
+      "HOW will you know it's done (test, benchmark, metric)?",
+      "WHICH files or components should change?",
+    ],
+  },
+  {
+    pattern: /^fix\s+(the\s+)?(bug|issue|problem|error)\s*$/i,
+    reason: "Task references a bug without describing it",
+    questions: [
+      "WHAT is the bug (error message, unexpected behavior)?",
+      "WHERE does it occur (file, route, function)?",
+      "WHEN does it happen (reproduction steps)?",
+      "WHAT is the expected behavior?",
+    ],
+  },
+  {
+    pattern: /^(add|implement)\s+(a\s+)?(feature|functionality|thing|stuff)\s*$/i,
+    reason: "Task references a feature without describing it",
+    questions: [
+      "WHAT feature should be added (name, purpose)?",
+      "WHERE should it go (API endpoint, UI component)?",
+      "WHAT are the inputs and outputs?",
+    ],
+  },
+  {
+    pattern: /^(review|check|test|analyze)\s*(it|this|the code|the app)?\s*$/i,
+    reason: "Task requests review with no subject",
+    questions: [
+      "WHAT should be reviewed (file path, code snippet, PR)?",
+      "WHAT aspects (security, performance, style, correctness)?",
+      "ARE there specific concerns or known issues?",
+    ],
+  },
+  {
+    pattern: /^.{0,10}$/,
+    reason: "Task is too short to be actionable",
+    questions: [
+      "WHAT is the specific task?",
+      "WHAT files or components are involved?",
+      "WHAT are the expected deliverables?",
+    ],
+  },
+];
+
+/**
+ * Assess whether a task description is clear enough to execute.
+ * Returns reject=true with Wh-questions if the task is too vague.
+ */
+function assessTaskClarity(taskDescription: string): ClarityAssessment {
+  const trimmed = taskDescription.trim();
+
+  for (const { pattern, reason, questions } of VAGUE_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return { reject: true, reason, questions };
+    }
+  }
+
+  return { reject: false, reason: "", questions: [] };
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Workflow PreHook Types
 // karpathy-clean-code: Config activates, not defines.
 // Workflow = structured plan for planner — executed via PreHook.
@@ -679,6 +766,21 @@ export default function (pi: ExtensionAPI) {
     if (from === card?.name) return;
     if (currentDelegatedTaskId) {
       await client.postError(taskId, "Agent busy with another task");
+      return;
+    }
+
+    // ── Vagueness guard: reject tasks that lack clarity ──
+    // Per karpathy-clean-code: prompts > code, but code is the safety net.
+    const vagueness = assessTaskClarity(description);
+    if (vagueness.reject) {
+      const questions = vagueness.questions.join("\n");
+      console.log(`[pipal-a2a] ❓ Rejected vague task from ${from}: ${vagueness.reason}`);
+      await client.postResult(taskId, 
+        `[Task Rejected — Too Vague]\n\n` +
+        `Reason: ${vagueness.reason}\n\n` +
+        `Please clarify:\n${questions}\n\n` +
+        `Resend with: pipal_a2a_delegate({ task: "<clearer task>", to: "${card.name}" })`
+      );
       return;
     }
 
