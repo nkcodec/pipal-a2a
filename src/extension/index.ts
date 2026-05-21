@@ -775,8 +775,10 @@ export default function (pi: ExtensionAPI) {
       ? "\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n" +
         "1. mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
         "2. mempalace_mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
-        "3. mempalace_mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n" +
-        "4. Reply with your result ONLY after calling the above tools."
+        "3. mempalace_mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n\n" +
+        "⚠️ CRITICAL RULE: If ANY MemPalace tool FAILS — do NOT reply with success.\n" +
+        "Report back with: \"MEMPALACE FAILED: <tool> failed — <error>\"\n" +
+        "The task is NOT complete until MemPalace is updated. Planner must know."
       : "";
 
     console.log(`[pipal-a2a] 🔍 handleIncomingTask description length: ${description.length}, reminder: ${mempalaceReminder.length} chars`);
@@ -1036,10 +1038,11 @@ export default function (pi: ExtensionAPI) {
             : 0;
 
           const mempalaceReminder = card.name !== targetCard.name
-            ? `\n\n🧠 **MemPalace Reminder:** Call MemPalace tools to update shared/project-status:\n` +
+            ? `\n\n🧠 **MemPalace Reminder:** Verify MemPalace tools were called:\n` +
               `1. mempalace_mempalace_add_drawer({ wing: "wing_pipal_a2a", room: "shared", content: "..." })\n` +
               `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
-              `3. mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "wing_pipal_a2a" })`
+              `3. mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "wing_pipal_a2a" })\n\n` +
+              `⚠️ If MemPalace was NOT called — call it now. Planner must track all completions.`
             : "";
 
           return {
