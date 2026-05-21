@@ -72,24 +72,35 @@ config/
 
 ## MemPalace Integration (v0.3.1)
 
-**Architecture:**
+**Architecture:** Option D — LLM-driven MCP calls
 ```
 wing_a2a/                        ← ONE wing for agent system
-├── {agent_role}/                ← per-agent room (auto from team.yaml)
-│   ├── drawer: "project-name"  ← project = just a drawer
-│   └── drawer: "scratch"       ← ad-hoc tasks
-├── shared/                      ← cross-agent docs (write ownership map)
-└── Knowledge Graph (queryThenInvalidate, shared facts)
+├── {agent_role}/                ← per-agent room
+│   └── drawer: "project-name"  ← project = just a drawer
+├── diary/                       ← per-agent diary entries
+└── Knowledge Graph (shared facts)
 ```
 
-**Hook flow:**
+**Hook flow (LLM-driven, NOT code-driven):**
 ```
-PreHook:  2 calls (parallel): kg_query + search own room
-PostHook: 4 calls (allSettled): search+merge, kg update, diary, optional shared
-Total:    6 calls per task, <500ms overhead, zero decisions per write
+BEFORE delegate:
+  1. mempalace_search({ query, wing: "wing_a2a", room: <role> })
+  2. mempalace_kg_query({ entity: <project> })
+
+AFTER delegate:
+  3. mempalace_add_drawer({ wing: "wing_a2a", room: <role>, content })
+  4. mempalace_kg_add({ subject, predicate: "has_<role>", object: "completed" })
+  5. mempalace_diary_write({ agent_name, entry, wing: "wing_a2a" })
 ```
 
-**Status:** Wired into both workflow + normal delegation paths. Active when MCP server connected. Graceful no-op otherwise.
+**Why Option D:** Extensions can't access pi's MCP client. The LLM already has MCP access. Per karpathy-clean-code: prompts > code.
+
+**Live test verified:** ✅ All 5 MCP calls work. Data stored and retrievable.
+
+**Files kept (for tests + future use):**
+- mempalace-types.ts — pure functions (resolveProjectName, mergeDrawerContent)
+- mempalace-hooks.ts — PreHook/PostHook logic (unused, kept for Layer 2 tests)
+- mempalace.ts — MempalaceIntegration class (unused, kept for future direct-access path)
 
 ## Workflows (team.yaml)
 
