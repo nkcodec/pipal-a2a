@@ -6,7 +6,8 @@
 ## Current Version: v0.3.1
 
 ```
-v0.3.1 ✅  Mempalace integration (agent memory & shared KB)
+v0.3.1 ✅  Mempalace integration (agent memory & shared KB) — Option D (LLM-driven)
+v0.3.1 ✅  Task clarity guard (reject vague tasks with Wh-questions)
 v0.3.0 ✅  Workflow PreHook (automated multi-step workflows)
 v0.2.4 ✅  .env file support
 v0.2.3 ✅  Role reference pattern (PIPAL_ROLE)
@@ -19,16 +20,11 @@ v0.1.4 ✅  Auth (API Key)
 ## Test Status
 
 ```
-121 tests passing (0 failing)
-├── 98 existing tests (core + infrastructure + extension)
-└── 23 new mempalace-core tests
-    ├── resolveProjectName: 6
-    ├── extractSection: 4
-    ├── mergeDrawerContent: 2
-    ├── canWriteShared: 4
-    ├── SHARED_WRITE_OWNERSHIP: 1
-    ├── DEFAULT_MEMPALACE_CONFIG: 2
-    └── loadMempalaceConfig: 4
+145 tests passing (0 failing)
+├── 121 existing tests (core + infrastructure + extension)
+└── 24 new tests
+    ├── 23 mempalace-core tests (resolveProjectName, mergeDrawerContent, etc.)
+    └── task-clarity tests (reject vague tasks, accept clear tasks)
 ```
 
 ## Source Tree (src/)
@@ -43,10 +39,10 @@ src/
 ├── infrastructure/
 │   └── shared-state.ts     ← SharedStateServer + Client + SSE
 ├── extension/
-│   ├── index.ts            ← Main extension (~1150 lines, wired)
+│   ├── index.ts            ← Main extension (~1100 lines, wired + task-clarity)
 │   ├── mempalace-types.ts  ← Core: pure functions, zero MCP
-│   ├── mempalace-hooks.ts  ← Implementation: PreHook/PostHook
-│   └── mempalace.ts        ← Wiring: MCP client + config
+│   ├── mempalace-hooks.ts  ← PreHook/PostHook logic (unused, kept)
+│   └── mempalace.ts        ← Wiring: MCP client + config (unused, kept)
 └── cli/index.ts            ← CLI entry point
 ```
 
@@ -97,10 +93,22 @@ AFTER delegate:
 
 **Live test verified:** ✅ All 5 MCP calls work. Data stored and retrievable.
 
-**Files kept (for tests + future use):**
-- mempalace-types.ts — pure functions (resolveProjectName, mergeDrawerContent)
-- mempalace-hooks.ts — PreHook/PostHook logic (unused, kept for Layer 2 tests)
-- mempalace.ts — MempalaceIntegration class (unused, kept for future direct-access path)
+**Files created:**
+- `src/extension/mempalace-types.ts` — pure functions (resolveProjectName, mergeDrawerContent)
+- `src/extension/mempalace-hooks.ts` — PreHook/PostHook logic (unused, kept for Layer 2 tests)
+- `src/extension/mempalace.ts` — MempalaceIntegration class (unused, kept for future)
+- `tests/mempalace-core.test.ts` — 23 core tests (pure functions, zero mocks)
+
+**Key decisions:**
+- Extension provides promptGuidelines, LLM calls MCP tools directly (NOT code-driven)
+- Client-side merge: read-before-write, not server-side
+- Best-effort: Promise.allSettled, never block agent execution
+- wing = wing_a2a (one wing for agent system, cross-project learning is a feature)
+- Per-agent rooms for noise-free isolation
+
+**Option A rejected:** HTTP direct to ChromaDB — couples to backend internals, breaks if MemPalace switches backends.
+
+**Tests:** 121 passed (145 total incl. task-clarity)
 
 ## Workflows (team.yaml)
 
@@ -112,19 +120,20 @@ AFTER delegate:
 ## Git Log (recent)
 
 ```
-b4e316d docs: mark v0.3.1 as shipped in roadmap
-a698133 config: enable mempalace in pipal-a2a.yaml
-1726f6a feat(mempalace): wire PreHook/PostHook into delegation flow
-1a0898c feat(mempalace): Core + Hooks + Wiring + Tests
-00c8bb8 docs: mempalace design v3.2
+90f4444 fix(task-clarity): correct regex patterns + add 'build something cool' test
+2b7d5f4 feat: task clarity guard — reject vague tasks with Wh-questions
+42fbc05 docs: update STATUS.md — Option D live-tested
+53726a5 fix(mempalace): diary_write requires agent_name param
+ebcec04 refactor(mempalace): Option D — LLM-driven MCP calls (-73 lines)
 ```
 
 ## Next Steps (Priority Order)
 
 1. **Test todo-app workflow** — `build todo-app` with 2+ agents
-2. **Connect MemPalace MCP** — verify hooks fire with real MCP server
-3. **Add hook-layer tests** — Layer 2 (stubs, verify PreHook/PostHook call patterns)
+2. **Add task-clarity guard tests** — Layer 2 integration test (mock SSE, verify rejection)
+3. **Add Mempalace integration test** — verify LLM calls MCP tools before/after delegation
 4. **v0.3.2** — Full Google A2A v1.0 spec compliance (= v1.0)
+5. **Layer 2+3 tests for mempalace-hooks.ts** — verify call patterns with stubs
 
 ## Known Issues
 
