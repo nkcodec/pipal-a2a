@@ -25,7 +25,7 @@ v0.2.2  ← infrastructure reliability (Tier 2 fixes) ✅
 v0.2.3  ← role reference pattern (DRY refactor) ✅
 v0.2.4  ← .env file support (secrets out of git) ✅
 v0.3.0  ← Workflow PreHook (automated multi-step workflows) ✅
-v0.3.1  ← Mempalace integration (agent memory & shared KB) ← NEW
+v0.3.1  ← Mempalace integration (agent memory & shared KB) ✅
 v0.3.2  ← = "v1.0" — full Google A2A spec compliance
 ```
 
