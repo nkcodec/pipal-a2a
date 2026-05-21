@@ -1,59 +1,41 @@
-# pipal-a2a Documentation
+# PiPal-A2A Documentation
 
-Educational documentation for the pipal-a2a multi-agent networking system.
+## Guides
 
-## 📚 Learning Path
+| Guide | Description |
+|-------|-------------|
+| [Quick Start](./QUICK_START.md) | Get running in 5 minutes |
+| [Workflow Setup](./WORKFLOW_SETUP.md) | Define multi-step workflows |
+| [MemPalace Test Plan](./MEMPALACE_TEST_PLAN.md) | Optional agent memory testing |
 
-### Beginner
-1. [Quick Start](./QUICK_START.md) - Get up and running in 5 minutes
-2. [Workflow Setup](./WORKFLOW_SETUP.md) - Set up tmux sessions for agents
-3. [Architecture Overview](./ARCHITECTURE_OVERVIEW.md) - Understand the system design
+## Key Files
 
-### Intermediate
-4. [BTC Trading Case Study](./BTC_TRADING_CASE_STUDY.md) - Real-world workflow walkthrough
+| File | Description |
+|------|-------------|
+| [README.md](../README.md) | Project overview and features |
+| [ROADMAP.md](../ROADMAP.md) | Planned features and versions |
+| [STATUS.md](../STATUS.md) | Current status and test results |
+| [config/pipal-a2a.yaml](../config/pipal-a2a.yaml) | Main configuration |
+| [config/team.yaml](../config/team.yaml) | Agent roles and workflows |
 
-### Agent Reference
-5. [Backend Agent](../agents/BACKEND_AGENT.md) - API development
-6. [Frontend Agent](../agents/FRONTEND_AGENT.md) - UI development
-7. [Security Agent](../agents/SECURITY_AGENT.md) - Security auditing
-8. [Data Agent](../agents/DATA_AGENT.md) - Data pipelines
-9. [Reviewer Agent](../agents/REVIEWER_AGENT.md) - Code review
-
-## 📁 Structure
+## Architecture
 
 ```
-docs/
-├── README.md                    # This file
-├── QUICK_START.md             # 5-minute setup guide
-├── WORKFLOW_SETUP.md          # tmux and workflow configuration
-├── ARCHITECTURE_OVERVIEW.md   # System architecture
-├── BTC_TRADING_CASE_STUDY.md  # Complete workflow example
-├── agents/
-│   ├── BACKEND_AGENT.md       # Backend documentation
-│   ├── FRONTEND_AGENT.md      # Frontend documentation
-│   ├── SECURITY_AGENT.md       # Security documentation
-│   ├── DATA_AGENT.md           # Data documentation
-│   └── REVIEWER_AGENT.md       # Reviewer documentation
-└── tutorials/
-    └── (coming soon)
+src/
+├── core/types.ts           ← Google A2A v1.0 data model (FROZEN)
+├── sdk/index.ts            ← AgentRegistry, TaskRouter
+├── builtin/
+│   ├── skill-matcher.ts    ← Skill-based routing
+│   └── smart-router.ts     ← Tag-based auto-routing
+├── infrastructure/
+│   └── shared-state.ts     ← SharedStateServer + Client + SSE
+├── extension/
+│   └── index.ts            ← Main extension
+└── cli/index.ts            ← CLI entry point
 ```
 
-## 🎯 Use Cases
+## Tests
 
-- **Web Development** - Build full-stack apps (backend + frontend)
-- **Security Auditing** - Review code for vulnerabilities
-- **Data Processing** - Build data pipelines and ETL
-- **Code Review** - Quality assurance across projects
-- **Custom Workflows** - Define your own multi-agent workflows
-
-## 🔧 Configuration
-
-Main config files:
-- `config/team.yaml` - Agent roles and workflows
-- `config/pipal-a2a.yaml` - Network settings
-
-## 📖 Additional Resources
-
-- [pipal-a2a GitHub](https://github.com/...)
-- [A2A Protocol Specification](https://github.com/google/A2A)
-- [tmux Cheat Sheet](https://tmuxcheatsheet.com/)
+```bash
+npm test    # 145 tests covering core, infrastructure, extension, routing
+```
