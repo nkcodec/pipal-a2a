@@ -14,3 +14,11 @@ sharedState: http://localhost:5000
 
 # apiKey moved to .env (PIPAL_API_KEY) — per-project, not in git
 role: planner
+
+# MemPalace — agent memory and knowledge graph
+# Per karpathy-clean-code: Config activates, not defines.
+mempalace:
+  enabled: true
+  wing: "wing_a2a"
+  autoQuery: true
+  autoStore: true
