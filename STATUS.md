@@ -70,6 +70,7 @@ config/
 
 **Architecture:** Option D — LLM-driven MCP calls
 **Room Strategy:** shared/ ONLY for cross-agent docs. Per-agent rooms = scratch only.
+**Agent Vote:** 5-0 for shared/, 5-0 for scratch, 4-1 for 5 calls.
 
 ```
 wing_a2a/
@@ -82,22 +83,24 @@ wing_a2a/
 └── diary/             ← ALL agents write (timestamped)
 ```
 
-**Hook flow (LLM-driven, write to shared/ ONLY):**
+**Hook flow (LLM-driven, 5 calls):**
 ```
-BEFORE delegate:
+BEFORE delegate (2 calls):
   1. mempalace_search({ wing: "wing_a2a", room: "shared" })
   2. mempalace_kg_query({ entity: <project> })
 
-AFTER delegate:
+AFTER delegate (3 calls):
   3. mempalace_add_drawer({ wing: "wing_a2a", room: "shared", content }) → shared/project-status
   4. mempalace_kg_add({ subject, predicate: "has_<role>", object: "completed" })
   5. mempalace_diary_write({ agent_name, entry, wing: "wing_a2a" })
 ```
 
-**Why shared/ only:**
-- No race conditions — agent writes to their SECTION only in project-status
-- No confusion — one place to write, one place to read
-- Ownership map prevents multi-agent conflicts
+**Agent vote (2026-05-21):**
+| Question | backend | reviewer | frontend | data | security | Result |
+|---|---|---|---|---|---|---|
+| shared/ or per-agent? | SHARED | SHARED | SHARED | SHARED | SHARED | **SHARED 5-0** |
+| Per-agent rooms? | SCRATCH | SCRATCH | SCRATCH | SCRATCH | SCRATCH | **SCRATCH 5-0** |
+| 5 or 3 calls? | 3 | 5 | 5 | 5 | 5 | **5 calls 4-1** |
 
 **Rooms created:**
 - shared/ownership-map ✅

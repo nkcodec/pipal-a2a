@@ -848,7 +848,7 @@ export default function (pi: ExtensionAPI) {
       "[MemPalace] AFTER delegation completes: call mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
       "[MemPalace] AFTER delegation completes: call mempalace_diary_write({ agent_name: \"planner\", entry: \"PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★\", wing: \"wing_a2a\" }) to log the decision.",
       "[MemPalace] Write ONLY to shared/ — NOT to per-agent rooms. Per-agent rooms are scratch only.",
-      "[MemPalace] shared/project-status: append to your section only (your_role section). No overwriting others.",
+      "[MemPalace] Total: 5 calls (search + kg_query before; add_drawer + kg_add + diary_write after).",
     ],
     parameters: Type.Object({
       task: Type.String({ description: "The task description to delegate" }),
