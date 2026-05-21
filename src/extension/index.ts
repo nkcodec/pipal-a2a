@@ -195,8 +195,9 @@ interface ClarityAssessment {
 
 /** Vague phrases that indicate insufficient clarity */
 const VAGUE_PATTERNS: Array<{ pattern: RegExp; reason: string; questions: string[] }> = [
+  // Pattern 1: Verb + vague filler (cool, nice, better, etc.) with no specifics
   {
-    pattern: /^(build|make|create|fix|improve|update|change|do)\s*(something|it|that|this|stuff|things?)?\s*$/i,
+    pattern: /^(build|make|create|fix|improve|update|change|do)\s+(something|it|that|this|stuff|things?)\b/i,
     reason: "Task has no specific subject",
     questions: [
       "WHAT exactly should be built, fixed, or changed?",
@@ -204,8 +205,19 @@ const VAGUE_PATTERNS: Array<{ pattern: RegExp; reason: string; questions: string
       "WHAT are the specific requirements or acceptance criteria?",
     ],
   },
+  // Pattern 1b: Bare verb only ("build", "fix", "improve")
   {
-    pattern: /^(make|build)\s+(it|the app|the code|the project)\s+(better|good|cool|nice|awesome|great|work)\s*$/i,
+    pattern: /^(build|make|create|fix|improve|update|change|do)\s*$/i,
+    reason: "Task has no specific subject",
+    questions: [
+      "WHAT exactly should be built, fixed, or changed?",
+      "WHERE should the output go (file path, directory)?",
+      "WHAT are the specific requirements or acceptance criteria?",
+    ],
+  },
+  // Pattern 2: Subjective goal ("make the app better", "build something cool")
+  {
+    pattern: /^(make|build)\s+(it|the app|the code|the project|something)\s+(better|good|cool|nice|awesome|great|work|interesting|fun)/i,
     reason: "Task has subjective goal with no measurable criteria",
     questions: [
       "WHAT specific improvement is needed (performance, UX, security)?",
@@ -213,8 +225,9 @@ const VAGUE_PATTERNS: Array<{ pattern: RegExp; reason: string; questions: string
       "WHICH files or components should change?",
     ],
   },
+  // Pattern 3: Unscoped bug reference
   {
-    pattern: /^fix\s+(the\s+)?(bug|issue|problem|error)\s*$/i,
+    pattern: /^fix\s+(the\s+)?(bug|issue|problem|error)/i,
     reason: "Task references a bug without describing it",
     questions: [
       "WHAT is the bug (error message, unexpected behavior)?",
@@ -223,8 +236,9 @@ const VAGUE_PATTERNS: Array<{ pattern: RegExp; reason: string; questions: string
       "WHAT is the expected behavior?",
     ],
   },
+  // Pattern 4: Unscoped feature request
   {
-    pattern: /^(add|implement)\s+(a\s+)?(feature|functionality|thing|stuff)\s*$/i,
+    pattern: /^(add|implement)\s+(a\s+)?(feature|functionality|thing|stuff)/i,
     reason: "Task references a feature without describing it",
     questions: [
       "WHAT feature should be added (name, purpose)?",
@@ -232,6 +246,7 @@ const VAGUE_PATTERNS: Array<{ pattern: RegExp; reason: string; questions: string
       "WHAT are the inputs and outputs?",
     ],
   },
+  // Pattern 5: Unscoped review request
   {
     pattern: /^(review|check|test|analyze)\s*(it|this|the code|the app)?\s*$/i,
     reason: "Task requests review with no subject",
