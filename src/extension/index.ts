@@ -426,11 +426,21 @@ async function executeWorkflowIfMatch(
 
     console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${effectiveTask.slice(0, 60)}..."`);
 
+    // Prepend MemPalace reminder to workflow task
+    const mempalaceReminder = "\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n" +
+      "1. mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
+      "2. mempalace_mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
+      "3. mempalace_mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n\n" +
+      "⚠️ CRITICAL RULES:\n" +
+      "1. If ANY MemPalace tool FAILS — do NOT reply with success. Report: \"MEMPALACE FAILED: <tool> failed — <error>\"\n" +
+      "2. Do NOT try to fix or restart MemPalace yourself. Planner handles infrastructure.\n" +
+      "3. The task is NOT complete until MemPalace is updated. Planner must know.\n\n";
+
     // Execute delegation with result capture
     const taskId = await client.createTask({
       from: card.name,
       to: step.role,
-      task: effectiveTask,
+      task: `${mempalaceReminder}${effectiveTask}`,
     });
 
     const result = await waitForTaskCompletion(client, taskId, 120_000, signal, onUpdate, card.name, target.name);
