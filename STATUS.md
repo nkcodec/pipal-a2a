@@ -83,16 +83,18 @@ wing_a2a/
 └── diary/             ← ALL agents write (timestamped)
 ```
 
+**MemPalace Wing Name:** wing_pipal_a2a (renamed from wing_a2a after MemPalace repair wipe)
+
 **Hook flow (LLM-driven, 5 calls):**
 ```
 BEFORE delegate (2 calls):
-  1. mempalace_search({ wing: "wing_a2a", room: "shared" })
+  1. mempalace_search({ wing: "wing_pipal_a2a", room: "shared" })
   2. mempalace_kg_query({ entity: <project> })
 
 AFTER delegate (3 calls):
-  3. mempalace_add_drawer({ wing: "wing_a2a", room: "shared", content }) → shared/project-status
+  3. mempalace_add_drawer({ wing: "wing_pipal_a2a", room: "shared", content }) → shared/project-status
   4. mempalace_kg_add({ subject, predicate: "has_<role>", object: "completed" })
-  5. mempalace_diary_write({ agent_name, entry, wing: "wing_a2a" })
+  5. mempalace_diary_write({ agent_name, entry, wing: "wing_pipal_a2a" })
 ```
 
 **Agent vote (2026-05-21):**
