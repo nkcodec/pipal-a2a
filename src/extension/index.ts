@@ -776,9 +776,12 @@ export default function (pi: ExtensionAPI) {
         "1. mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
         "2. mempalace_mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
         "3. mempalace_mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n\n" +
-        "⚠️ CRITICAL RULE: If ANY MemPalace tool FAILS — do NOT reply with success.\n" +
-        "Report back with: \"MEMPALACE FAILED: <tool> failed — <error>\"\n" +
-        "The task is NOT complete until MemPalace is updated. Planner must know."
+        "⚠️ CRITICAL RULES:\n" +
+        "1. If ANY MemPalace tool FAILS — do NOT reply with success.\n" +
+        "   Report: \"MEMPALACE FAILED: <tool> failed — <error>\"\n" +
+        "2. Do NOT try to fix or restart MemPalace yourself.\n" +
+        "   Planner handles infrastructure. You report, not fix.\n" +
+        "3. The task is NOT complete until MemPalace is updated. Planner must know."
       : "";
 
     console.log(`[pipal-a2a] 🔍 handleIncomingTask description length: ${description.length}, reminder: ${mempalaceReminder.length} chars`);
