@@ -174,6 +174,26 @@ function loadConfig(): ExtensionConfig {
   return config;
 }
 
+/** Global mempalace integration — initialized on session_start */
+let mempalace: MempalaceIntegration | null = null;
+
+/** Load raw YAML data for mempalace config (same paths as loadConfig) */
+function loadYamlConfig(): any {
+  const paths = [
+    resolve(process.cwd(), "config/pipal-a2a.yaml"),
+    resolve(process.cwd(), ".pipal-a2a.yaml"),
+    resolve(process.env.HOME || "~", ".pi/config/pipal-a2a.yaml"),
+  ];
+  for (const p of paths) {
+    try {
+      return load(readFileSync(p, "utf8"), { schema: DEFAULT_SCHEMA });
+    } catch {
+      continue;
+    }
+  }
+  return {};
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Workflow PreHook Types
 // karpathy-clean-code: Config activates, not defines.
@@ -192,6 +212,13 @@ interface Workflow {
   working_dir?: string;  // Directory for all steps in this workflow
   steps: WorkflowStep[];
 }
+
+import {
+  DEFAULT_MEMPALACE_CONFIG,
+  type MempalaceConfig,
+} from "./mempalace-types";
+import { loadMempalaceConfig, MempalaceIntegration } from "./mempalace";
+import type { MempalaceContext } from "./mempalace-hooks";
 
 /**
  * Load workflows from team.yaml (same resolution path as loadTeamRoles).
@@ -317,6 +344,19 @@ async function executeWorkflowIfMatch(
 
     console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${effectiveTask.slice(0, 60)}..."`);
 
+    // MemPalace PreHook: inject context before delegation (best-effort)
+    let mempalaceCtx: MempalaceContext | null = null;
+    if (mempalace?.isActive) {
+      mempalaceCtx = await mempalace.preHook(
+        step.role,
+        matchedWorkflow.name,
+        process.cwd()
+      );
+      if (mempalaceCtx?.facts || mempalaceCtx?.priorWork) {
+        console.log(`[pipal-a2a] 🧠 Injected context for ${step.role}`);
+      }
+    }
+
     // Execute delegation with result capture
     const taskId = await client.createTask({
       from: card.name,
@@ -326,6 +366,18 @@ async function executeWorkflowIfMatch(
 
     const result = await waitForTaskCompletion(client, taskId, 120_000, signal, onUpdate, card.name, target.name);
     completedRoles.add(step.role);
+
+    // MemPalace PostHook: store result (best-effort)
+    if (mempalace?.isActive) {
+      const resultText = result?.artifacts?.[0]?.parts?.[0]?.text || "";
+      await mempalace.postHook(
+        step.role,
+        matchedWorkflow.name,
+        process.cwd(),
+        effectiveTask,
+        resultText
+      );
+    }
 
     const status = result?.status?.state === "TASK_STATE_COMPLETED" ? "✅" : "❌";
     const text = result?.artifacts?.[0]?.parts?.[0]?.text?.slice(0, 100) || "";
@@ -510,6 +562,20 @@ export default function (pi: ExtensionAPI) {
     console.log(`[pipal-a2a] ✅ Online as "${card.name}" [${skillList}] tags:[${tagList}]`);
     console.log(`[pipal-a2a] pipal_a2a tools: agents() | my_card() | delegate() | status()`);
     console.log(`[pipal-a2a] Check agents() + my_card() BEFORE delegating.`);
+
+    // Initialize mempalace integration (best-effort, never blocks)
+    try {
+      const yamlData = loadYamlConfig();
+      const mcpCaller = (pi as any).mcp?.call?.bind((pi as any).mcp) || null;
+      const mpConfig = loadMempalaceConfig(yamlData);
+      mempalace = new MempalaceIntegration(mpConfig, mcpCaller);
+      if (mempalace.isActive) {
+        console.log(`[pipal-a2a] 🧠 MemPalace enabled (wing: ${mpConfig.wing})`);
+      }
+    } catch (err) {
+      console.warn(`[pipal-a2a] ⚠️ MemPalace init failed: ${err}`);
+      mempalace = null;
+    }
   });
 
   // ───────────────────────────────────────────────────────────────
@@ -814,6 +880,18 @@ export default function (pi: ExtensionAPI) {
 
         console.log(`[pipal-a2a] 🎯 Routing to ${targetCard.name} (online: ${onlineAgents.map((a: AgentCard) => a.name).join(", ")})`);
 
+        // MemPalace PreHook: inject context (best-effort)
+        if (mempalace?.isActive) {
+          const ctx = await mempalace.preHook(
+            card.name,
+            undefined, // no workflow match for normal delegation
+            process.cwd()
+          );
+          if (ctx?.facts || ctx?.priorWork) {
+            console.log(`[pipal-a2a] 🧠 Injected context for ${card.name}`);
+          }
+        }
+
         // Submit task to shared state
         const taskId = await client.createTask({
           from: card.name,
@@ -883,6 +961,18 @@ export default function (pi: ExtensionAPI) {
         if (result.status.state === "TASK_STATE_COMPLETED") {
           const resultText = result.artifacts?.[0]?.parts?.[0]?.text
             ?? JSON.stringify(result.artifacts, null, 2);
+
+          // MemPalace PostHook: store result (best-effort)
+          if (mempalace?.isActive) {
+            await mempalace.postHook(
+              card.name,
+              undefined,
+              process.cwd(),
+              params.task,
+              resultText
+            );
+          }
+
           return {
             content: [{
               type: "text" as const,
