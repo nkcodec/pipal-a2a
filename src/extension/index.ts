@@ -34,6 +34,7 @@ import { SharedStateServer, SharedStateClient, type StoredTask } from "../infras
 import { InMemoryAgentRegistry } from "../application/registry.js";
 import { DefaultTaskRouter } from "../application/router.js";
 import { SmartRouter } from "../builtin/smart-router.js";
+import { registerWriteMempalaceTool } from "./mempalace-store.js";
 
 // ─────────────────────────────────────────────────────────────────
 // Config
@@ -560,6 +561,9 @@ export default function (pi: ExtensionAPI) {
   let lastAssistantText = "";
   let lastStreamedLength = 0;
   let resultTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Register MemPalace store tool
+  registerWriteMempalaceTool(pi);
 
   // ───────────────────────────────────────────────────────────────
   // Lifecycle: session_start
