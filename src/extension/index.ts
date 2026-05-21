@@ -729,7 +729,7 @@ export default function (pi: ExtensionAPI) {
       "[MemPalace] BEFORE delegating: call mempalace_mempalace_kg_query({ entity: <project> }) to find known facts about the project.",
       "[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: \"wing_a2a\", room: <agent_role>, content: <summary> }) to store what was built.",
       "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
-      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ entry: \"PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★\" }) to log the decision.",
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ agent_name: \"planner\", entry: \"PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★\", wing: \"wing_a2a\" }) to log the decision.",
       "[MemPalace] wing is always \"wing_a2a\", room is the agent role (backend, frontend, reviewer, etc).",
     ],
     parameters: Type.Object({
