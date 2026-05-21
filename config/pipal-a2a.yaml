@@ -17,8 +17,8 @@ role: planner
 
 # MemPalace — agent memory and knowledge graph
 # Per karpathy-clean-code: Config activates, not defines.
+# Default: disabled. Enable and set your own wing name.
 mempalace:
-  enabled: true
-  wing: "wing_a2a"
-  autoQuery: true
-  autoStore: true
+  enabled: false
+  wing: "wing_a2a"    # change to your project wing
+  sharedRoom: "shared"

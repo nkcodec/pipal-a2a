@@ -112,10 +112,9 @@ function loadConfig(): ExtensionConfig {
         role: loaded.role,
         apiKey: loaded.apiKey,
         identity: loaded.identity ?? config.identity,
-        // MemPalace: use loaded values or sensible defaults (config activates)
-        // NOTE: wing_pipal_a2a is NOT committed — use your own wing name
+        // MemPalace: OFF by default (config activates, not defines)
         mempalace: loaded.mempalace ?? {
-          enabled: true,
+          enabled: false,
           wing: "wing_a2a",
           sharedRoom: "shared",
         },
@@ -440,17 +439,21 @@ async function executeWorkflowIfMatch(
 
     console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${effectiveTask.slice(0, 60)}..."`);
 
-    // Prepend MemPalace reminder to workflow task
-    const wing = config.mempalace?.wing ?? "wing_a2a";
-    const room = config.mempalace?.sharedRoom ?? "shared";
-    const mempalaceReminder = `\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n` +
-      `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
-      `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_<agent>", object: "completed" })\n` +
-      `3. mempalace_mempalace_diary_write({ agent_name: "<agent>", entry: "PROJ:<project>|TASK:...|AGENT:<agent>|★★★★", wing: "${wing}" })\n\n` +
-      `⚠️ CRITICAL RULES:\n` +
-      `1. If ANY MemPalace tool FAILS — do NOT reply with success. Report: "MEMPALACE FAILED: <tool> failed — <error>"\n` +
-      `2. Do NOT try to fix or restart MemPalace yourself. Planner handles infrastructure.\n` +
-      `3. The task is NOT complete until MemPalace is updated. Planner must know.\n\n`;
+    // Prepend MemPalace reminder to workflow task (only if enabled)
+    const mempalaceReminder = config.mempalace?.enabled
+      ? (() => {
+          const wing = config.mempalace!.wing;
+          const room = config.mempalace!.sharedRoom;
+          return `\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n` +
+            `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
+            `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_<agent>", object: "completed" })\n` +
+            `3. mempalace_mempalace_diary_write({ agent_name: "<agent>", entry: "PROJ:<project>|TASK:...|AGENT:<agent>|★★★★", wing: "${wing}" })\n\n` +
+            `⚠️ CRITICAL RULES:\n` +
+            `1. If ANY MemPalace tool FAILS — do NOT reply with success. Report: "MEMPALACE FAILED: <tool> failed — <error>"\n` +
+            `2. Do NOT try to fix or restart MemPalace yourself. Planner handles infrastructure.\n` +
+            `3. The task is NOT complete until MemPalace is updated. Planner must know.\n\n`;
+        })()
+      : "";
 
     // Execute delegation with result capture
     const taskId = await client.createTask({
@@ -796,20 +799,22 @@ export default function (pi: ExtensionAPI) {
     const skill = data?.skill;
     const description = data?.task || "";
 
-    // Inject MemPalace reminder into taskMessage sent to agent
-    const wing = config.mempalace?.wing ?? "wing_a2a";
-    const room = config.mempalace?.sharedRoom ?? "shared";
-    const mempalaceReminder = from !== card.name
-      ? `\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n` +
-        `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
-        `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_<agent>", object: "completed" })\n` +
-        `3. mempalace_mempalace_diary_write({ agent_name: "<agent>", entry: "PROJ:<project>|TASK:...|AGENT:<agent>|★★★★", wing: "${wing}" })\n\n` +
-        `⚠️ CRITICAL RULES:\n` +
-        `1. If ANY MemPalace tool FAILS — do NOT reply with success.\n` +
-        `   Report: "MEMPALACE FAILED: <tool> failed — <error>"\n` +
-        `2. Do NOT try to fix or restart MemPalace yourself.\n` +
-        `   Planner handles infrastructure. You report, not fix.\n` +
-        `3. The task is NOT complete until MemPalace is updated. Planner must know.`
+    // Inject MemPalace reminder into taskMessage sent to agent (only if enabled)
+    const mempalaceReminder = config.mempalace?.enabled && from !== card.name
+      ? (() => {
+          const wing = config.mempalace!.wing;
+          const room = config.mempalace!.sharedRoom;
+          return `\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n` +
+            `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
+            `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_<agent>", object: "completed" })\n` +
+            `3. mempalace_mempalace_diary_write({ agent_name: "<agent>", entry: "PROJ:<project>|TASK:...|AGENT:<agent>|★★★★", wing: "${wing}" })\n\n` +
+            `⚠️ CRITICAL RULES:\n` +
+            `1. If ANY MemPalace tool FAILS — do NOT reply with success.\n` +
+            `   Report: "MEMPALACE FAILED: <tool> failed — <error>"\n` +
+            `2. Do NOT try to fix or restart MemPalace yourself.\n` +
+            `   Planner handles infrastructure. You report, not fix.\n` +
+            `3. The task is NOT complete until MemPalace is updated. Planner must know.`;
+        })()
       : "";
 
     console.log(`[pipal-a2a] 🔍 handleIncomingTask description length: ${description.length}, reminder: ${mempalaceReminder.length} chars`);
@@ -878,6 +883,19 @@ export default function (pi: ExtensionAPI) {
       "The other agent's LLM will process the task in its own terminal (the user can see it working). " +
       "Waits up to 2 minutes for the result.",
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
+    // Build MemPalace guidelines only if enabled (config activates, not defines)
+    const mempalaceGuidelines = config.mempalace?.enabled ? [
+      // MemPalace integration (Option D: LLM-driven)
+      "",
+      "[MemPalace] BEFORE delegating: call mempalace_search({ query: <project>, wing: "${config.mempalace.wing}", room: "${config.mempalace.sharedRoom}" }) to check for prior work.",
+      "[MemPalace] BEFORE delegating: call mempalace_kg_query({ entity: <project> }) to find known facts about the project.",
+      `[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: "${config.mempalace.wing}", room: "${config.mempalace.sharedRoom}", content: <status> }) to update shared/project-status.`,
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
+      `[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★", wing: "${config.mempalace.wing}" }) to log the decision.`,
+      "[MemPalace] Write ONLY to shared/ — NOT to per-agent rooms. Per-agent rooms are scratch only.",
+      "[MemPalace] Total: 5 calls (search + kg_query before; add_drawer + kg_add + diary_write after).",
+    ] : [];
+
     promptGuidelines: [
       "IMPORTANT: You are an ORCHESTRATOR — NEVER write code or create project files yourself. ONLY delegate via pipal_a2a_delegate.",
       "Before delegating: call pipal_a2a_agents() to find correct agent names. Then use to=<name>.",
@@ -886,15 +904,7 @@ export default function (pi: ExtensionAPI) {
       "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
       "If delegation returns incomplete results: delegate AGAIN with a clearer task — do NOT build it yourself.",
       "If no agent name known: omit to= and skill= — SmartRouter will pick the right agent by tag.",
-      // MemPalace integration (Option D: LLM-driven)
-      "",
-      "[MemPalace] BEFORE delegating: call mempalace_search({ query: <project>, wing: \"${config.mempalace?.wing ?? 'wing_a2a'}\", room: \"${config.mempalace?.sharedRoom ?? 'shared'}\" }) to check for prior work.",
-      "[MemPalace] BEFORE delegating: call mempalace_kg_query({ entity: <project> }) to find known facts about the project.",
-      `[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: "${config.mempalace?.wing ?? 'wing_a2a'}", room: "${config.mempalace?.sharedRoom ?? 'shared'}", content: <status> }) to update shared/project-status.`,
-      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
-      `[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★", wing: "${config.mempalace?.wing ?? 'wing_a2a'}" }) to log the decision.`,
-      "[MemPalace] Write ONLY to shared/ — NOT to per-agent rooms. Per-agent rooms are scratch only.",
-      "[MemPalace] Total: 5 calls (search + kg_query before; add_drawer + kg_add + diary_write after).",
+      ...mempalaceGuidelines,
     ],
     parameters: Type.Object({
       task: Type.String({ description: "The task description to delegate" }),
@@ -1068,14 +1078,17 @@ export default function (pi: ExtensionAPI) {
             ? new Date(result.status.timestamp).getTime() - (result.metadata?.createdAt as number || 0)
             : 0;
 
-          const wing = config.mempalace?.wing ?? "wing_a2a";
-          const room = config.mempalace?.sharedRoom ?? "shared";
-          const mempalaceReminder = card.name !== targetCard.name
-            ? `\n\n🧠 **MemPalace Reminder:** Verify MemPalace tools were called:\n` +
-              `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
-              `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
-              `3. mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "${wing}" })\n\n` +
-              `⚠️ If MemPalace was NOT called — call it now. Planner must track all completions.`
+          // MemPalace reminder only if enabled
+          const mempalaceReminder = config.mempalace?.enabled && card.name !== targetCard.name
+            ? (() => {
+                const wing = config.mempalace!.wing;
+                const room = config.mempalace!.sharedRoom;
+                return `\n\n🧠 **MemPalace Reminder:** Verify MemPalace tools were called:\n` +
+                  `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
+                  `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
+                  `3. mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "${wing}" })\n\n` +
+                  `⚠️ If MemPalace was NOT called — call it now. Planner must track all completions.`;
+              })()
             : "";
 
           return {
