@@ -1,30 +1,97 @@
-# MemPalace Integration Design — Final v2
+# MemPalace Integration Design — Final v3
 
 ## Architecture
 
 ```
-wing_a2a/
-├── backend/     ← auto-created from team.yaml roles
-├── frontend/    ← auto-created from team.yaml roles
-├── security/    ← auto-created from team.yaml roles
-├── data/        ← auto-created from team.yaml roles
-├── reviewer/    ← auto-created from team.yaml roles
-├── planner/     ← auto-created from team.yaml roles
-└── shared/      ← cross-agent documents (API specs, schemas, specs)
+wing_{project}/                    ← Wing = project (hard isolation)
+├── backend/                       ← room = agent role (auto from team.yaml)
+├── frontend/
+├── security/
+├── data/
+├── reviewer/
+├── planner/
+└── shared/                        ← cross-agent documents
 
-+ Knowledge Graph (shared, structured facts across agents)
++ Knowledge Graph (shared across ALL wings)
 + Diary (per-agent temporal log, built-in AAAK format)
+
+Examples:
+  wing_btc_trading/
+  ├── backend/
+  ├── frontend/
+  └── shared/
+
+  wing_todo_app/
+  ├── backend/
+  ├── frontend/
+  └── shared/
 ```
+
+### Why Wing = Project (changed from v2)
+
+v2 used `wing_a2a` for all projects. This gave **soft isolation** — search could cross-pollinate between btc-trading and todo-app because both had "Express API" in the `backend/` room.
+
+v3 uses `wing_{project}` per project. This gives **hard isolation** — MemPalace's `search` API filters by wing natively. btc-trading searches NEVER return todo-app results.
+
+```
+v2: search("btc-trading", room="backend")  → soft, semantic matching
+v3: search("btc-trading", room="backend", wing="wing_btc_trading")  → hard, exact filter
+```
+
+---
 
 ## Design Principles
 
-1. **Per-agent rooms** — auto-created from team.yaml, not hardcoded
-2. **Shared room** — cross-agent documents that don't fit in KG triples
-3. **One drawer per project per agent** — merged each session, not replaced
-4. **KG for cross-agent facts** — structured, queryable, shared
-5. **Diary for temporal log** — per-session, AAAK format
-6. **Zero decisions per write** — room=role, drawer=project, content=result
-7. **Best-effort hooks** — never block agent execution, failures logged only
+1. **Wing = project** — hard isolation between projects
+2. **Room = agent role** — auto-created from team.yaml, noise-free
+3. **Shared room** — cross-agent documents per project
+4. **One drawer per agent per project** — merged each session, not replaced
+5. **KG for cross-agent facts** — structured, queryable, global
+6. **Diary for temporal log** — per-session, AAAK format
+7. **Zero decisions per write** — wing=project, room=role, drawer=auto
+8. **Best-effort hooks** — never block agent execution, failures logged only
+
+---
+
+## MCP Client Access (Gate-Blocker #1 — Resolved)
+
+### How hooks call MemPalace
+
+pi has a built-in MCP adapter via the extension system. The extension already has access to MCP tools through `pi.mcp` or the extension context.
+
+```typescript
+// In extension context, MCP tools are available via:
+const mcp = context.mcp; // pi provides this
+
+// Call mempalace tools:
+await mcp.call("mempalace_mempalace_search", { query: projectName, wing, room });
+await mcp.call("mempalace_mempalace_add_drawer", { wing, room, content });
+await mcp.call("mempalace_mempalace_kg_query", { entity: projectName });
+await mcp.call("mempalace_mempalace_kg_add", { subject, predicate, object });
+await mcp.call("mempalace_mempalace_diary_write", { entry });
+```
+
+### Fallback if MCP not available
+
+If pi's MCP context is not available (older pi version), use direct HTTP to MemPalace's local server:
+
+```typescript
+// Fallback: direct HTTP to MemPalace MCP server
+const MEMPALACE_URL = process.env.MEMPALACE_URL || "http://localhost:3002";
+
+async function mcpCall(tool: string, args: object) {
+  // Try pi MCP context first
+  if (context?.mcp) {
+    return context.mcp.call(`mempalace_mempalace_${tool}`, args);
+  }
+  // Fallback: direct HTTP
+  const response = await fetch(`${MEMPALACE_URL}/tools/${tool}`, {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+  return response.json();
+}
+```
 
 ---
 
@@ -35,10 +102,9 @@ Every hook input maps 1:1 to a MemPalace parameter. Zero ambiguity.
 ```
 Hook Input              →  MemPalace Param
 ───────────────────────────────────────────
-step.role               →  room name (from team.yaml)
-matchedWorkflow.name    →  drawer lookup (btc-trading, todo-app)
-process.cwd() basename  →  drawer lookup FALLBACK for ad-hoc tasks
-step.task               →  search query (project name added to scope)
+projectName             →  wing name (wing_btc_trading)
+step.role               →  room name (backend, frontend, etc.)
+projectName             →  search query (scoped to wing)
 result text             →  drawer content
 ```
 
@@ -50,20 +116,67 @@ Not all tasks come from workflows. Ad-hoc delegations need project context too.
 
 ```
 Priority:
-  1. matchedWorkflow.name        → "btc-trading" (workflow match)
-  2. process.cwd() basename      → "pipal-a2a" (current directory)
-  3. "scratch"                   → fallback for unresolvable projects
+  1. matchedWorkflow.name           → "btc-trading" (workflow match)
+  2. process.cwd() basename         → current directory name
+  3. "scratch"                      → fallback for unresolvable projects
 ```
 
-In code:
+Wing name derived from project:
 
 ```typescript
-function resolveProjectName(task: string, workflow?: Workflow): string {
-  if (workflow?.name) return workflow.name;           // Workflow match
-  const cwd = path.basename(process.cwd());           // Current directory
-  if (cwd !== 'pipal-a2a' && cwd !== 'src') return cwd; // In project dir
-  return 'scratch';                                   // Fallback
+function resolveWingName(projectName: string): string {
+  return `wing_${projectName.replace(/-/g, "_")}`;
 }
+// "btc-trading" → "wing_btc_trading"
+// "todo-app" → "wing_todo_app"
+```
+
+---
+
+## Hook Lifecycle Integration Points (Gate-Blocker #2 — Resolved)
+
+### Where hooks fire in the existing code
+
+```
+Current code flow (src/extension/index.ts):
+
+  delegateHandler()                    ← User calls pipal_a2a_delegate
+    → executeWorkflowIfMatch()         ← PreHook: workflow matching
+        → for each step:
+            → createTask()             ← TASK STARTS
+            → waitForTaskCompletion()  ← TASK ENDS
+    → return results
+
+MemPalace hooks integrate at exact points:
+
+  delegateHandler()
+    → executeWorkflowIfMatch()
+        → mempalacePreHook(project, role)    ← NEW: before createTask
+        → createTask()
+        → waitForTaskCompletion()
+        → mempalacePostHook(project, role, result)  ← NEW: after completion
+    → return results
+
+  For NON-workflow delegations:
+  delegateHandler()
+    → mempalacePreHook(project, role)    ← NEW: before normal delegation
+    → normal delegation
+    → mempalacePostHook(project, role, result)  ← NEW: after result
+```
+
+### Code integration points
+
+```typescript
+// In executeWorkflowIfMatch(), before delegating each step:
+await mempalacePreHook(step.role, projectName, enrichedTask);
+
+// After waitForTaskCompletion():
+await mempalacePostHook(step.role, projectName, result);
+
+// In normal delegation path (non-workflow):
+await mempalacePreHook(config.role, projectName, task);
+// ... delegation happens ...
+await mempalacePostHook(config.role, projectName, result);
 ```
 
 ---
@@ -79,14 +192,13 @@ PreHook runs (2 calls, parallel, best-effort):
      → "has_backend: false"     → Not built yet, OK to proceed
      → "built_by: null"         → No conflicts with other agents
 
-  2. search(projectName, room=agentRole)
-     → Scoped to own room + project name in query
-     → Prevents cross-project contamination
+  2. search(projectName, wing=resolveWingName(project), room=agentRole)
+     → Hard-filtered to project wing + agent room
+     → Zero cross-project contamination
      → Returns only relevant context
 
 If MemPalace is DOWN:
-  → Log warning: "[pipal-a2a] ⚠️ MemPalace unavailable, skipping context"
-  → Agent proceeds without context (no blocking)
+  → Log warning, agent proceeds without context
 ```
 
 ## PostHook Flow (after agent finishes)
@@ -94,208 +206,180 @@ If MemPalace is DOWN:
 ```
 Agent completed: Built Express API with 4 routes, 8 files
 
-PostHook runs (4 calls, best-effort):
+PostHook runs (3 calls, allSettled, best-effort):
 
-  1. check_duplicate(projectName, room=agentRole)
-     → If exists: update_drawer(merge new content with existing)
-     → If not: add_drawer(new project knowledge)
-     → MERGE, not replace — preserves session 1 history
+  1. add_drawer(wing, room=agentRole, content)
+     → Built-in dedup: if drawer exists, auto-updates
+     → No separate check_duplicate call (removed — was racy)
+     → Content is merged by add_drawer's duplicate detection
 
-  2. kg_invalidate(old facts) → kg_add(new facts)
-     → Invalidate stale facts before adding new ones
-     → Prevents KG pollution
+  2. queryThenInvalidate(projectName, predicate, newObject)
+     → kg_query to find old value
+     → kg_invalidate old value
+     → kg_add new value
+     → Wrapped in helper, not exposed as 3 separate calls
 
   3. diary_write("PROJ:btc-trading|TASK:Build API|FILES:8|★★★★")
      → Includes task text for temporal search
 
-  4. If document is cross-agent (API spec, schema):
-     → add_drawer("wing_a2a", "shared", document)
-     → Goes to shared room, not agent's private room
+  4. (optional) If cross-agent document detected:
+     → add_drawer(wing, room="shared", document)
+     → Ownership check via sharedWriteOwnership map
 
 If MemPalace is DOWN:
-  → Log warning: "[pipal-a2a] ⚠️ MemPalace unavailable, results not stored"
-  → Agent result still returns to caller (no data loss for caller)
+  → Log warning, caller still gets result
+```
+
+---
+
+## Resilience (Fixed)
+
+All MemPalace calls are **best-effort**. Never block agent execution.
+
+```typescript
+async function postHook(result, agentRole, projectName) {
+  // Promise.allSettled — partial success is OK
+  const results = await Promise.allSettled([
+    storeOrUpdateDrawer(agentRole, projectName, result),
+    queryThenInvalidateKG(projectName, result),
+    diaryWrite(projectName, result),
+  ]);
+
+  // Log any failures, but never throw
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      const names = ['drawer', 'kg', 'diary'];
+      console.warn(`[pipal-a2a] ⚠️ ${names[i]} store failed: ${r.reason}`);
+    }
+  });
+}
+```
+
+**Key fix:** `Promise.allSettled` instead of `Promise.all`. If diary fails, drawer and KG still succeed.
+
+---
+
+## KG Helper (Fixed)
+
+```typescript
+async function queryThenInvalidateKG(
+  subject: string,
+  predicate: string,
+  newObject: string
+): Promise<void> {
+  // 1. Query current value
+  const current = await mcpCall("kg_query", { entity: subject });
+  const facts = current?.facts || [];
+
+  // 2. Invalidate matching predicate
+  const match = facts.find((f: any) => f.predicate === predicate);
+  if (match) {
+    await mcpCall("kg_invalidate", {
+      subject,
+      predicate,
+      object: match.object
+    });
+  }
+
+  // 3. Add new value
+  await mcpCall("kg_add", { subject, predicate, object: newObject });
+}
+```
+
+---
+
+## Shared Room Write Ownership (Fixed)
+
+```typescript
+// mempalace-types.ts
+const sharedWriteOwnership: Record<string, string> = {
+  "api-spec": "backend",
+  "db-schema": "backend",
+  "project-spec": "planner",
+  "security-checklist": "security",
+  "env-schema": "backend",
+  "data-schema": "data",
+};
+
+async function writeToShared(
+  agentRole: string,
+  docType: string,
+  wing: string,
+  content: string
+): Promise<void> {
+  const owner = sharedWriteOwnership[docType];
+  if (owner && owner !== agentRole) {
+    console.warn(`[pipal-a2a] ⚠️ ${agentRole} cannot write ${docType} (owned by ${owner})`);
+    return;
+  }
+  await mcpCall("add_drawer", { wing, room: "shared", content });
+}
 ```
 
 ---
 
 ## Drawer Format
 
-One drawer per project per agent. **Merged** each session (not replaced).
+One drawer per project per agent. Content merged via add_drawer's built-in dedup.
 
 ```markdown
 # {project_name}
 
 ## What I Built
-{files, endpoints, components — concrete deliverables}
+{files, endpoints, components}
 
 ## Decisions
-{why I chose X over Y — only non-obvious ones}
+{why I chose X over Y}
 
 ## Issues & Fixes
-{bugs hit, how fixed — prevents repeat mistakes}
+{bugs hit, how fixed}
 
 ## Tips for Next Time
 {what worked, what didn't}
 
 ## Dependencies
-{what this project needs to run}
+{what this project needs}
 
 ## How to Run
 {exact commands}
 
 ## History
-- {date}: {session summary} (merged from previous sessions)
+- {date}: {session summary}
 
 ## Updated: {date}
 ```
 
-Merge strategy:
+Merge logic:
 
 ```typescript
 function mergeDrawerContent(existing: string, newContent: string): string {
-  // Keep existing "History" section, append current session
-  // Replace other sections with new content (more recent = more accurate)
-  // Never delete history — only append
+  // Extract History section from existing
+  const history = extractSection(existing, "History");
+
+  // Use new content for all sections (more recent = more accurate)
+  // Append previous "What I Built" + "Decisions" as new history entry
+  const prevSummary = extractSections(existing, ["What I Built", "Decisions"]);
+  const prevDate = extractDate(existing);
+
+  const merged = newContent.replace(
+    "## History",
+    `## History\n- ${prevDate}: ${prevSummary}\n${history}`
+  );
+
+  return merged;
 }
 ```
 
 ---
 
-## Shared Room
+## Auto Room & Wing Creation
 
-Cross-agent documents that don't fit in KG triples.
-
-```
-wing_a2a/shared/
-├── drawer: "btc-trading-api-spec"     ← OpenAPI spec (backend writes, frontend reads)
-├── drawer: "btc-trading-env-schema"   ← .env variables
-├── drawer: "btc-trading-db-schema"    ← Database schema
-└── drawer: "btc-trading-project-spec" ← Full project spec (planner writes)
-```
-
-Who writes to shared:
-
-| Document | Written By | Read By |
-|----------|-----------|---------|
-| API spec / endpoints | backend | frontend, data |
-| DB schema | backend | data, security |
-| Project spec | planner | all agents |
-| Security checklist | security | backend, frontend |
-| .env variables | backend | all agents |
-
----
-
-## Knowledge Graph
-
-Structured facts shared across ALL agents.
-
-```
-kg_add(subject, predicate, object)
-
-# Project facts
-btc-trading → has_backend → express-api
-btc-trading → has_frontend → react-ui
-btc-trading → has_data_feed → sse-simulator
-btc-trading → status → complete
-
-# Agent preferences (learned over time)
-backend → prefers → specific-task-descriptions
-frontend → prefers → detailed-component-specs
-
-# Vulnerability tracking
-btc-trading → has_vulnerability → xss-sse-inject (fixed)
-btc-trading → has_vulnerability → ssrf-orderbook (open)
-```
-
-**Invalidation strategy:**
+Wings and rooms are NOT hardcoded. Created on-demand.
 
 ```typescript
-// Before adding new status, invalidate old one
-await kg_invalidate("btc-trading", "status", "in-progress");
-await kg_add("btc-trading", "status", "complete");
-```
-
----
-
-## Diary
-
-Per-agent temporal log using MemPalace's built-in AAAK format.
-
-```
-diary_write("PROJ:btc-trading|TASK:Build trading API|FILES:8|★★★★")
-diary_write("PROJ:btc-trading|TASK:Fix cjs extension|TIP:check-parent-pkg|★★★")
-diary_write("PROJ:btc-trading|TASK:Audit code|FINDINGS:7|SEV:2-high-5-medium|★★★★")
-```
-
-**Session boundary:** One diary entry per PostHook invocation (one per delegated task).
-
----
-
-## Planner Is Special
-
-Planner coordinates all agents. It searches EVERYWHERE.
-
-```
-planner PreHook:
-  1. kg_query("btc-trading")              → ALL structured facts
-  2. search("btc-trading")                → ALL rooms (no room filter)
-  3. search("btc-trading", room="shared") → Cross-agent documents
-  4. Check: which agents already worked on this?
-
-planner PostHook:
-  1. diary_write(workflow execution log)  → Full workflow result
-  2. kg_invalidate(project, "status", old)
-  3. kg_add(project, "status", "complete")
-  4. add_drawer("wing_a2a", "shared", project_spec) → for other agents
-```
-
----
-
-## Resilience
-
-All MemPalace calls are **best-effort**. Never block agent execution.
-
-```typescript
-async function preHook(task, agentRole, projectName) {
-  try {
-    const [facts, context] = await Promise.all([
-      kg_query(projectName),
-      search(projectName, { room: agentRole })
-    ]);
-    return { facts, context };
-  } catch (err) {
-    console.warn('[pipal-a2a] ⚠️ MemPalace unavailable, skipping context');
-    return { facts: null, context: null }; // Agent proceeds without context
-  }
-}
-
-async function postHook(result, agentRole, projectName) {
-  try {
-    await Promise.all([
-      storeOrUpdateDrawer(agentRole, projectName, result),
-      updateKG(projectName, result),
-      diary_write(formatDiaryEntry(projectName, result))
-    ]);
-  } catch (err) {
-    console.warn('[pipal-a2a] ⚠️ MemPalace unavailable, results not stored');
-    // Caller still gets result — no data loss
-  }
-}
-```
-
----
-
-## Auto Room Creation
-
-Rooms are NOT hardcoded. They're created on-demand from team.yaml.
-
-```typescript
-async function ensureRoomExists(role: string) {
-  // add_drawer auto-creates room if it doesn't exist
-  // No explicit room creation needed — just write to it
-  // First write to "backend" room creates it automatically
-}
+// MemPalace auto-creates wings/rooms on first add_drawer call
+// No explicit creation needed — just write to it
+// First add_drawer("wing_btc_trading", "backend", ...) creates both
 ```
 
 ---
@@ -305,12 +389,11 @@ async function ensureRoomExists(role: string) {
 | Metric | Value |
 |--------|-------|
 | PreHook calls | 2 (parallel) |
-| PostHook calls | 3-4 (parallel) |
-| Total per task | 5-6 calls |
+| PostHook calls | 3 (allSettled) |
+| Total per task | 5 calls |
 | Latency added | <500ms (LLM takes 30-60s) |
-| Agent decisions | 0 (room=role, drawer=project) |
-| Cognitive load | Zero — just write naturally |
-| Blocking on failure | Never — best-effort only |
+| Agent decisions | 0 (wing=project, room=role) |
+| Blocking on failure | Never — allSettled + try/catch |
 
 ---
 
@@ -318,17 +401,17 @@ async function ensureRoomExists(role: string) {
 
 ```
 src/extension/
-├── index.ts                 ← existing hooks (unchanged)
-├── mempalace-types.ts       ← SDK: types, interfaces, drawer format
-├── mempalace-hooks.ts       ← Implementation: PreHook/PostHook logic
-└── mempalace.ts             ← Wiring: connects to MCP, registers hooks
+├── index.ts                 ← existing hooks (minimal changes)
+├── mempalace-types.ts       ← SDK: types, interfaces, ownership map, merge logic
+├── mempalace-hooks.ts       ← Implementation: PreHook/PostHook, resilience
+└── mempalace.ts             ← Wiring: MCP client, lifecycle integration
 
 config/pipal-a2a.yaml:
   mempalace:
-    enabled: true            ← Config activates, not defines
-    wing: "wing_a2a"
-    autoQuery: true           ← PreHook queries palace
-    autoStore: true           ← PostHook stores results
+    enabled: true
+    wing_prefix: "wing_"     ← prefix for wing names
+    autoQuery: true
+    autoStore: true
 ```
 
 ---
@@ -339,10 +422,10 @@ Three layers per karpathy-clean-code:
 
 ```
 tests/
-├── mempalace-types.test.ts   ← Core: project resolution, drawer merge logic
-│                               (pure functions, no MCP needed)
+├── mempalace-types.test.ts   ← Core: project resolution, wing naming,
+│                               drawer merge, shared ownership (pure functions)
 ├── mempalace-hooks.test.ts   ← Hook: PreHook/PostHook with stubs
-│                               (stub MCP calls, verify behavior)
+│                               (stub mcpCall, verify correct calls made)
 └── mempalace-e2e.test.ts     ← E2E: real MCP calls (optional, CI skip)
                                 (real MemPalace, verify integration)
 ```
@@ -351,18 +434,16 @@ tests/
 
 ## Evolution Rules
 
-Per karpathy-clean-code: **split when you feel friction, not before.**
-
 ```
-v0.3.1:  Per-agent rooms + shared + KG + diary
+v0.3.1:  Wing=project, room=agent, shared room, KG, diary
+  ↓
+  (when >10 projects, wing proliferation)
+  ↓
+v0.3.2:  Add wing listing/management, archive old project wings
   ↓
   (when shared/ gets >50 documents)
   ↓
-v0.3.2:  Split shared into sub-rooms (specs/, schemas/, checklists/)
-  ↓
-  (when agent room gets >100 drawers)
-  ↓
-v0.3.3:  Agent naturally categorizes its own room
+v0.3.3:  Split shared into typed sub-drawers
 ```
 
 ---
@@ -370,13 +451,15 @@ v0.3.3:  Agent naturally categorizes its own room
 ## Summary
 
 ```
-Per-agent rooms       →  No noise, auto-created from team.yaml
-Shared room           →  Cross-agent documents (API specs, schemas)
-One drawer/project    →  Merged each session, never replaced
-KG + invalidation     →  Structured facts, no pollution
-Diary per task        →  Temporal audit trail with task text
-Best-effort hooks     →  Never block, never lose caller data
-Project fallback      →  workflow.name → cwd → "scratch"
-5-6 calls total       →  <500ms overhead
-Zero decisions        →  room=role, drawer=project
+Wing = project          →  Hard isolation between projects (changed from v2)
+Room = agent role       →  No noise, auto-created from team.yaml
+Shared room             →  Cross-agent docs with write ownership
+One drawer/agent/project → Merged, never replaced
+KG + queryThenInvalidate → Structured facts, no pollution
+Diary per task          →  Temporal audit trail with task text
+Best-effort allSettled  →  Partial success OK, never block
+MCP via pi context      →  Native MCP access with HTTP fallback
+Project fallback        →  workflow.name → cwd → "scratch"
+5 calls total           →  <500ms overhead
+Zero decisions          →  wing=project, room=role, drawer=auto
 ```
