@@ -773,9 +773,9 @@ export default function (pi: ExtensionAPI) {
     // Inject MemPalace reminder into taskMessage sent to agent
     const mempalaceReminder = from !== card.name
       ? "\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n" +
-        "1. mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
-        "2. mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
-        "3. mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n" +
+        "1. mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: \"...\" })\n" +
+        "2. mempalace_mempalace_kg_add({ subject: \"<project>\", predicate: \"has_<agent>\", object: \"completed\" })\n" +
+        "3. mempalace_mempalace_diary_write({ agent_name: \"<agent>\", entry: \"PROJ:<project>|TASK:...|AGENT:<agent>|★★★★\", wing: \"wing_pipal_a2a\" })\n" +
         "4. Reply with your result ONLY after calling the above tools."
       : "";
 
@@ -857,9 +857,9 @@ export default function (pi: ExtensionAPI) {
       "",
       "[MemPalace] BEFORE delegating: call mempalace_search({ query: <project>, wing: \"wing_pipal_a2a\", room: \"shared\" }) to check for prior work.",
       "[MemPalace] BEFORE delegating: call mempalace_kg_query({ entity: <project> }) to find known facts about the project.",
-      "[MemPalace] AFTER delegation completes: call mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: <status> }) to update shared/project-status.",
-      "[MemPalace] AFTER delegation completes: call mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
-      "[MemPalace] AFTER delegation completes: call mempalace_diary_write({ agent_name: \"planner\", entry: \"PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★\", wing: \"wing_pipal_a2a\" }) to log the decision.",
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: <status> }) to update shared/project-status.",
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_diary_write({ agent_name: \"planner\", entry: \"PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★\", wing: \"wing_pipal_a2a\" }) to log the decision.",
       "[MemPalace] Write ONLY to shared/ — NOT to per-agent rooms. Per-agent rooms are scratch only.",
       "[MemPalace] Total: 5 calls (search + kg_query before; add_drawer + kg_add + diary_write after).",
     ],
@@ -1037,9 +1037,9 @@ export default function (pi: ExtensionAPI) {
 
           const mempalaceReminder = card.name !== targetCard.name
             ? `\n\n🧠 **MemPalace Reminder:** Call MemPalace tools to update shared/project-status:\n` +
-              `1. mempalace_add_drawer({ wing: "wing_pipal_a2a", room: "shared", content: "..." })\n` +
-              `2. mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
-              `3. mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "wing_pipal_a2a" })`
+              `1. mempalace_mempalace_add_drawer({ wing: "wing_pipal_a2a", room: "shared", content: "..." })\n` +
+              `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
+              `3. mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "wing_pipal_a2a" })`
             : "";
 
           return {
