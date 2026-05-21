@@ -180,6 +180,300 @@ LESSON: text-instructions-ignored | PROJ: pipal-a2a | INSIGHT: enforce working_d
 
 ---
 
+## Drawer Templates
+
+Each drawer is a full markdown document. Below are the templates agents will write.
+
+### projects Drawer Template
+
+```markdown
+# Project: {project_name}
+
+## Overview
+- **Status:** complete | partial | failed
+- **Working Dir:** {working_dir}/
+- **Created:** {date}
+- **Agents Used:** {agent_list}
+
+## File Tree
+```
+{working_dir}/
+├── backend/
+│   ├── server.js
+│   ├── routes/
+│   └── models/
+├── frontend/
+│   └── src/
+└── security-report.md
+```
+
+## Dependencies
+- backend: express ^4.18, cors, uuid
+- frontend: react ^18, react-dom
+
+## Running
+- Backend: `cd {working_dir}/backend && npm start` (port 3000)
+- Frontend: `cd {working_dir}/frontend && npm start` (port 3002)
+
+## Notes
+{any additional notes}
+```
+
+### decisions Drawer Template
+
+```markdown
+# ADR-{number}: {title}
+
+## Status
+Proposed | Accepted | Deprecated
+
+## Context
+{What is the issue that we're seeing that is motivating this decision?}
+
+## Decision
+{What is the change that we're proposing?}
+
+## Why
+{Why this choice over alternatives?}
+
+## Alternatives Considered
+1. {alt_1} — Rejected because {reason}
+2. {alt_2} — Rejected because {reason}
+
+## Consequences
+- Positive: {benefit}
+- Negative: {tradeoff}
+
+## References
+- Related: ADR-{xxx}
+- Commit: {commit_hash}
+
+---
+*Created: {date} by {agent}*
+```
+
+### bugs Drawer Template
+
+```markdown
+# Bug: {short_title}
+
+## Severity
+critical | high | medium | low
+
+## Symptom
+{What went wrong? What did the user see?}
+
+## Reproduction
+1. {step_1}
+2. {step_2}
+3. Expected: {expected}
+4. Actual: {actual}
+
+## Root Cause
+{What was the underlying issue?}
+
+## Fix
+{What change was made?}
+- File: {file_path}
+- Change: {description}
+- Commit: {commit_hash}
+
+## Verification
+- [x] Tests pass: {test_count}
+- [x] Manual test: {description}
+- [x] No regression
+
+## Lesson Learned
+{How to prevent this in the future}
+
+---
+*Fixed: {date} in commit {hash}*
+```
+
+### security Drawer Template
+
+```markdown
+# Security Finding: {short_title}
+
+## Severity
+critical | high | medium | low
+
+## Category
+injection | ssrf | xss | validation | auth | rce
+
+## Location
+- **File:** {file_path}
+- **Line:** {line_number}
+- **Function:** {function_name}
+
+## Vulnerable Code
+```{language}
+{vulnerable_code}
+```
+
+## Issue
+{Why is this code vulnerable?}
+
+## Exploit Scenario
+{How could an attacker exploit this?}
+
+## Fix
+```{language}
+{fixed_code}
+```
+
+## Prevention Pattern
+{General pattern to prevent this class of vulnerability}
+
+## References
+- OWASP: {category}
+- CWE: {number}
+
+---
+*Found: {date} by {agent}*
+```
+
+### workflows Drawer Template
+
+```markdown
+# Workflow Run: {workflow_name}
+
+## Definition
+- **Name:** {workflow_name}
+- **Working Dir:** {working_dir}/
+- **Total Steps:** {count}
+- **Triggered By:** "{user_task}"
+
+## Execution Log
+
+| # | Agent | Task | Status | Duration | Output |
+|---|-------|------|--------|----------|--------|
+| 1 | backend | Build API | ✅ | 45s | 8 files |
+| 2 | security | Audit | ✅ | 30s | 7 findings |
+| 3 | data | Price feed | ✅ | 20s | 1 file |
+| 4 | frontend | Trading UI | ✅ | 30s | 6 files |
+| 5 | reviewer | Code review | ✅ | 15s | report |
+
+## Results
+- **Files Created:** {total_files}
+- **Total Duration:** {total_duration}
+- **Success Rate:** {percentage}%
+- **Skipped Agents:** {list or none}
+
+## Issues
+- {issue_1}
+- {issue_2}
+
+---
+*Executed: {date}*
+```
+
+### agents Drawer Template
+
+```markdown
+# Agent: {role_name}
+
+## Capabilities
+- **Skills:** {skill_list}
+- **Tags:** {tag_list}
+- **Best For:** {what it excels at}
+
+## Performance History
+| Date | Task | Duration | Status | Notes |
+|------|------|----------|--------|-------|
+| {date} | {task} | {duration} | ✅/❌ | {note} |
+
+## Preferences
+- **Task format:** {what format works best}
+- **Response style:** {how it responds}
+- **Known issues:** {quirks}
+
+## Tips for Delegation
+1. {tip_1}
+2. {tip_2}
+3. {tip_3}
+
+## Reliability Score
+- **Completion rate:** {percentage}%
+- **Avg duration:** {seconds}s
+- **Last used:** {date}
+
+---
+*Updated: {date}*
+```
+
+### patterns Drawer Template
+
+```markdown
+# Pattern: {pattern_name}
+
+## Category
+code | config | workflow | security | architecture
+
+## Problem
+{What problem does this pattern solve?}
+
+## Solution
+```{language}
+{code_example}
+```
+
+## When to Use
+- {scenario_1}
+- {scenario_2}
+
+## When NOT to Use
+- {anti_scenario_1}
+
+## Trade-offs
+- **Pros:** {benefits}
+- **Cons:** {costs}
+
+## Real Examples
+- {project_1}: {file_path}
+- {project_2}: {file_path}
+
+---
+*Discovered: {date} in {project}*
+```
+
+### lessons Drawer Template
+
+```markdown
+# Lesson: {short_title}
+
+## Type
+success | failure | tip | warning | discovery
+
+## Context
+- **Project:** {project}
+- **Agent:** {agent}
+- **Date:** {date}
+
+## What Happened
+{Description of the situation}
+
+## Insight
+{The key takeaway}
+
+## Actionable Advice
+1. **Do:** {what to do}
+2. **Don't:** {what to avoid}
+
+## Impact
+★★★★★ (1-5)
+
+## Related
+- Bug: {bug_id}
+- Pattern: {pattern_name}
+- Decision: {adr_number}
+
+---
+*Learned: {date}*
+```
+
+---
+
 ## Cross-Wing Tunnels
 
 Tunnels connect rooms across wings for navigation:
