@@ -1,15 +1,16 @@
-# MemPalace Integration Design — Final
+# MemPalace Integration Design — Final v2
 
 ## Architecture
 
 ```
 wing_a2a/
-├── backend/     ← backend agent's room (isolated)
-├── frontend/    ← frontend agent's room (isolated)
-├── security/    ← security agent's room (isolated)
-├── data/        ← data agent's room (isolated)
-├── reviewer/    ← reviewer agent's room (isolated)
-└── planner/     ← planner agent's room (searches ALL rooms)
+├── backend/     ← auto-created from team.yaml roles
+├── frontend/    ← auto-created from team.yaml roles
+├── security/    ← auto-created from team.yaml roles
+├── data/        ← auto-created from team.yaml roles
+├── reviewer/    ← auto-created from team.yaml roles
+├── planner/     ← auto-created from team.yaml roles
+└── shared/      ← cross-agent documents (API specs, schemas, specs)
 
 + Knowledge Graph (shared, structured facts across agents)
 + Diary (per-agent temporal log, built-in AAAK format)
@@ -17,11 +18,13 @@ wing_a2a/
 
 ## Design Principles
 
-1. **Per-agent rooms** — agents only see their own context (no noise)
-2. **One drawer per project** — updated each session, not appended
-3. **KG for cross-agent facts** — structured, queryable, shared
-4. **Diary for temporal log** — per-session, AAAK format
-5. **Zero decisions per write** — room=role, drawer=project, content=result
+1. **Per-agent rooms** — auto-created from team.yaml, not hardcoded
+2. **Shared room** — cross-agent documents that don't fit in KG triples
+3. **One drawer per project per agent** — merged each session, not replaced
+4. **KG for cross-agent facts** — structured, queryable, shared
+5. **Diary for temporal log** — per-session, AAAK format
+6. **Zero decisions per write** — room=role, drawer=project, content=result
+7. **Best-effort hooks** — never block agent execution, failures logged only
 
 ---
 
@@ -32,10 +35,35 @@ Every hook input maps 1:1 to a MemPalace parameter. Zero ambiguity.
 ```
 Hook Input              →  MemPalace Param
 ───────────────────────────────────────────
-step.role               →  room name (backend, frontend, etc.)
+step.role               →  room name (from team.yaml)
 matchedWorkflow.name    →  drawer lookup (btc-trading, todo-app)
-step.task               →  search query
+process.cwd() basename  →  drawer lookup FALLBACK for ad-hoc tasks
+step.task               →  search query (project name added to scope)
 result text             →  drawer content
+```
+
+---
+
+## Project Resolution Strategy
+
+Not all tasks come from workflows. Ad-hoc delegations need project context too.
+
+```
+Priority:
+  1. matchedWorkflow.name        → "btc-trading" (workflow match)
+  2. process.cwd() basename      → "pipal-a2a" (current directory)
+  3. "scratch"                   → fallback for unresolvable projects
+```
+
+In code:
+
+```typescript
+function resolveProjectName(task: string, workflow?: Workflow): string {
+  if (workflow?.name) return workflow.name;           // Workflow match
+  const cwd = path.basename(process.cwd());           // Current directory
+  if (cwd !== 'pipal-a2a' && cwd !== 'src') return cwd; // In project dir
+  return 'scratch';                                   // Fallback
+}
 ```
 
 ---
@@ -45,19 +73,20 @@ result text             →  drawer content
 ```
 Agent receives: "Build trading API in btc-trading/"
 
-PreHook runs (2 calls, parallel):
+PreHook runs (2 calls, parallel, best-effort):
 
-  1. kg_query("btc-trading")
+  1. kg_query(projectName)
      → "has_backend: false"     → Not built yet, OK to proceed
      → "built_by: null"         → No conflicts with other agents
 
-  2. search("btc-trading", room="backend")
-     → No results               → First time, no prior context
-     → OR: finds drawer         → "Already built Express API last session"
-     → OR: finds tip            → "Use .cjs when parent has type:module"
+  2. search(projectName, room=agentRole)
+     → Scoped to own room + project name in query
+     → Prevents cross-project contamination
+     → Returns only relevant context
 
-Agent now has context before starting.
-Inject context into task description.
+If MemPalace is DOWN:
+  → Log warning: "[pipal-a2a] ⚠️ MemPalace unavailable, skipping context"
+  → Agent proceeds without context (no blocking)
 ```
 
 ## PostHook Flow (after agent finishes)
@@ -65,26 +94,34 @@ Inject context into task description.
 ```
 Agent completed: Built Express API with 4 routes, 8 files
 
-PostHook runs (3 calls, parallel):
+PostHook runs (4 calls, best-effort):
 
-  1. add_drawer("wing_a2a", "backend", updated_project_summary)
-     → Replaces previous drawer for this project
-     → Single source of truth per project per agent
+  1. check_duplicate(projectName, room=agentRole)
+     → If exists: update_drawer(merge new content with existing)
+     → If not: add_drawer(new project knowledge)
+     → MERGE, not replace — preserves session 1 history
 
-  2. kg_add("btc-trading", "has_backend", "express-api")
-     → Structured fact, any agent can query
-     → Other agents check this before starting
+  2. kg_invalidate(old facts) → kg_add(new facts)
+     → Invalidate stale facts before adding new ones
+     → Prevents KG pollution
 
-  3. diary_write("PROJ:btc-trading|built.api|FILES:8|★★★★")
-     → Temporal session log
-     → Useful for debugging and auditing
+  3. diary_write("PROJ:btc-trading|TASK:Build API|FILES:8|★★★★")
+     → Includes task text for temporal search
+
+  4. If document is cross-agent (API spec, schema):
+     → add_drawer("wing_a2a", "shared", document)
+     → Goes to shared room, not agent's private room
+
+If MemPalace is DOWN:
+  → Log warning: "[pipal-a2a] ⚠️ MemPalace unavailable, results not stored"
+  → Agent result still returns to caller (no data loss for caller)
 ```
 
 ---
 
 ## Drawer Format
 
-One drawer per project per agent. Updated (replaced) each session.
+One drawer per project per agent. **Merged** each session (not replaced).
 
 ```markdown
 # {project_name}
@@ -98,22 +135,60 @@ One drawer per project per agent. Updated (replaced) each session.
 ## Issues & Fixes
 {bugs hit, how fixed — prevents repeat mistakes}
 
+## Tips for Next Time
+{what worked, what didn't}
+
 ## Dependencies
 {what this project needs to run}
 
 ## How to Run
 {exact commands}
 
+## History
+- {date}: {session summary} (merged from previous sessions)
+
 ## Updated: {date}
 ```
 
-No categories. No templates. Natural language. Agent writes freely.
+Merge strategy:
+
+```typescript
+function mergeDrawerContent(existing: string, newContent: string): string {
+  // Keep existing "History" section, append current session
+  // Replace other sections with new content (more recent = more accurate)
+  // Never delete history — only append
+}
+```
+
+---
+
+## Shared Room
+
+Cross-agent documents that don't fit in KG triples.
+
+```
+wing_a2a/shared/
+├── drawer: "btc-trading-api-spec"     ← OpenAPI spec (backend writes, frontend reads)
+├── drawer: "btc-trading-env-schema"   ← .env variables
+├── drawer: "btc-trading-db-schema"    ← Database schema
+└── drawer: "btc-trading-project-spec" ← Full project spec (planner writes)
+```
+
+Who writes to shared:
+
+| Document | Written By | Read By |
+|----------|-----------|---------|
+| API spec / endpoints | backend | frontend, data |
+| DB schema | backend | data, security |
+| Project spec | planner | all agents |
+| Security checklist | security | backend, frontend |
+| .env variables | backend | all agents |
 
 ---
 
 ## Knowledge Graph
 
-Structured facts shared across ALL agents. Queried by any agent.
+Structured facts shared across ALL agents.
 
 ```
 kg_add(subject, predicate, object)
@@ -133,13 +208,12 @@ btc-trading → has_vulnerability → xss-sse-inject (fixed)
 btc-trading → has_vulnerability → ssrf-orderbook (open)
 ```
 
-Query examples:
-```
-kg_query("btc-trading")
-  → All facts about btc-trading project
+**Invalidation strategy:**
 
-kg_query("backend")
-  → What we know about backend agent's preferences
+```typescript
+// Before adding new status, invalidate old one
+await kg_invalidate("btc-trading", "status", "in-progress");
+await kg_add("btc-trading", "status", "complete");
 ```
 
 ---
@@ -149,15 +223,12 @@ kg_query("backend")
 Per-agent temporal log using MemPalace's built-in AAAK format.
 
 ```
-diary_write("PROJ:btc-trading|BUILT:express-api|FILES:8|★★★★")
-diary_write("PROJ:btc-trading|FIX:cjs-extension|TIP:check-parent-pkg|★★★")
-diary_write("PROJ:btc-trading|AUDIT:7-findings|SEV:2-high-5-medium|★★★★")
+diary_write("PROJ:btc-trading|TASK:Build trading API|FILES:8|★★★★")
+diary_write("PROJ:btc-trading|TASK:Fix cjs extension|TIP:check-parent-pkg|★★★")
+diary_write("PROJ:btc-trading|TASK:Audit code|FINDINGS:7|SEV:2-high-5-medium|★★★★")
 ```
 
-Read at session start:
-```
-diary_read() → recent entries → what happened last session
-```
+**Session boundary:** One diary entry per PostHook invocation (one per delegated task).
 
 ---
 
@@ -169,11 +240,62 @@ Planner coordinates all agents. It searches EVERYWHERE.
 planner PreHook:
   1. kg_query("btc-trading")              → ALL structured facts
   2. search("btc-trading")                → ALL rooms (no room filter)
-  3. Check: which agents already worked on this?
+  3. search("btc-trading", room="shared") → Cross-agent documents
+  4. Check: which agents already worked on this?
 
 planner PostHook:
   1. diary_write(workflow execution log)  → Full workflow result
-  2. kg_add(project, "workflow_status", "complete")
+  2. kg_invalidate(project, "status", old)
+  3. kg_add(project, "status", "complete")
+  4. add_drawer("wing_a2a", "shared", project_spec) → for other agents
+```
+
+---
+
+## Resilience
+
+All MemPalace calls are **best-effort**. Never block agent execution.
+
+```typescript
+async function preHook(task, agentRole, projectName) {
+  try {
+    const [facts, context] = await Promise.all([
+      kg_query(projectName),
+      search(projectName, { room: agentRole })
+    ]);
+    return { facts, context };
+  } catch (err) {
+    console.warn('[pipal-a2a] ⚠️ MemPalace unavailable, skipping context');
+    return { facts: null, context: null }; // Agent proceeds without context
+  }
+}
+
+async function postHook(result, agentRole, projectName) {
+  try {
+    await Promise.all([
+      storeOrUpdateDrawer(agentRole, projectName, result),
+      updateKG(projectName, result),
+      diary_write(formatDiaryEntry(projectName, result))
+    ]);
+  } catch (err) {
+    console.warn('[pipal-a2a] ⚠️ MemPalace unavailable, results not stored');
+    // Caller still gets result — no data loss
+  }
+}
+```
+
+---
+
+## Auto Room Creation
+
+Rooms are NOT hardcoded. They're created on-demand from team.yaml.
+
+```typescript
+async function ensureRoomExists(role: string) {
+  // add_drawer auto-creates room if it doesn't exist
+  // No explicit room creation needed — just write to it
+  // First write to "backend" room creates it automatically
+}
 ```
 
 ---
@@ -183,11 +305,47 @@ planner PostHook:
 | Metric | Value |
 |--------|-------|
 | PreHook calls | 2 (parallel) |
-| PostHook calls | 3 (parallel) |
-| Total per task | 5 calls |
+| PostHook calls | 3-4 (parallel) |
+| Total per task | 5-6 calls |
 | Latency added | <500ms (LLM takes 30-60s) |
 | Agent decisions | 0 (room=role, drawer=project) |
 | Cognitive load | Zero — just write naturally |
+| Blocking on failure | Never — best-effort only |
+
+---
+
+## File Structure
+
+```
+src/extension/
+├── index.ts                 ← existing hooks (unchanged)
+├── mempalace-types.ts       ← SDK: types, interfaces, drawer format
+├── mempalace-hooks.ts       ← Implementation: PreHook/PostHook logic
+└── mempalace.ts             ← Wiring: connects to MCP, registers hooks
+
+config/pipal-a2a.yaml:
+  mempalace:
+    enabled: true            ← Config activates, not defines
+    wing: "wing_a2a"
+    autoQuery: true           ← PreHook queries palace
+    autoStore: true           ← PostHook stores results
+```
+
+---
+
+## Test Plan
+
+Three layers per karpathy-clean-code:
+
+```
+tests/
+├── mempalace-types.test.ts   ← Core: project resolution, drawer merge logic
+│                               (pure functions, no MCP needed)
+├── mempalace-hooks.test.ts   ← Hook: PreHook/PostHook with stubs
+│                               (stub MCP calls, verify behavior)
+└── mempalace-e2e.test.ts     ← E2E: real MCP calls (optional, CI skip)
+                                (real MemPalace, verify integration)
+```
 
 ---
 
@@ -196,51 +354,29 @@ planner PostHook:
 Per karpathy-clean-code: **split when you feel friction, not before.**
 
 ```
-v0.3.1:  Per-agent rooms (5-6 rooms) + KG + diary
+v0.3.1:  Per-agent rooms + shared + KG + diary
   ↓
-  (when drawer gets >50 entries about same topic)
+  (when shared/ gets >50 documents)
   ↓
-v0.3.2:  Agent naturally splits its own room into sub-drawers
+v0.3.2:  Split shared into sub-rooms (specs/, schemas/, checklists/)
   ↓
-  (when agents need shared knowledge space)
+  (when agent room gets >100 drawers)
   ↓
-v0.3.3:  Add shared/ room for cross-agent context
+v0.3.3:  Agent naturally categorizes its own room
 ```
-
----
-
-## Configuration
-
-```yaml
-# config/pipal-a2a.yaml
-mempalace:
-  enabled: true          # Config activates, not defines
-  wing: "wing_a2a"       # Wing name
-  autoQuery: true         # PreHook queries palace
-  autoStore: true         # PostHook stores results
-```
-
----
-
-## Implementation Plan
-
-| Step | What | File |
-|------|------|------|
-| 1 | MemPalace MCP connection | `src/extension/mempalace.ts` |
-| 2 | PreHook: query context | `src/extension/mempalace.ts` |
-| 3 | PostHook: store results | `src/extension/mempalace.ts` |
-| 4 | Config option | `config/pipal-a2a.yaml` |
-| 5 | Tests | `tests/mempalace.test.ts` |
 
 ---
 
 ## Summary
 
 ```
-Per-agent rooms  →  No noise, fast queries
-One drawer/project  →  Updated, not appended
-KG for cross-agent  →  Structured shared facts
-Diary for temporal  →  Session audit trail
-5 API calls total  →  <500ms overhead
-Zero decisions     →  room=role, drawer=project
+Per-agent rooms       →  No noise, auto-created from team.yaml
+Shared room           →  Cross-agent documents (API specs, schemas)
+One drawer/project    →  Merged each session, never replaced
+KG + invalidation     →  Structured facts, no pollution
+Diary per task        →  Temporal audit trail with task text
+Best-effort hooks     →  Never block, never lose caller data
+Project fallback      →  workflow.name → cwd → "scratch"
+5-6 calls total       →  <500ms overhead
+Zero decisions        →  room=role, drawer=project
 ```
