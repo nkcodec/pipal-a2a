@@ -58,7 +58,7 @@ function taskNotFound(id: number | string | null, taskId: string): JsonRpcRespon
 // SSRF Protection — Webhook URL validation
 // ─────────────────────────────────────────────────────────────────
 
-function isValidWebhookUrl(url: string): boolean {
+function isValidWebhookUrl(url: string, allowLocalhost: boolean = false): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -70,6 +70,15 @@ function isValidWebhookUrl(url: string): boolean {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
 
   const host = parsed.hostname.toLowerCase();
+
+  // Block loopback (SSRF protection — webhook targets must be external)
+  if (!allowLocalhost && (host === '127.0.0.1' || host === 'localhost' || host === '::1')) return false;
+
+  // Block private networks (RFC 1918)
+  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(host)) return false;
+
+  // Block wildcards
+  if (host === '0.0.0.0' || host === '[::]') return false;
 
   // Block cloud metadata endpoint (AWS/GCP/Azure)
   if (host === '169.254.169.254') return false;
@@ -97,6 +106,7 @@ export class SharedStateServer {
   private sseClients = new Map<string, Response>();
   private taskStreams = new Map<string, { res: Response; taskId: string }>();
   private pushConfigs = new Map<string, PushNotificationConfig>(); // configId → config
+  private allowLocalhost: boolean = false;
   private validApiKeys = new Set<string>();
 
   // JSON-RPC dispatcher for task methods
@@ -104,6 +114,7 @@ export class SharedStateServer {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   async start(port: number, host: string = "127.0.0.1"): Promise<string> {
+    this.allowLocalhost = host === "127.0.0.1";
     this.app.use(express.json({ limit: '1mb' }));
     this.setupAgentRoutes();
     this.setupPushRoutes();
@@ -240,7 +251,7 @@ export class SharedStateServer {
         res.status(400).json({ error: "PushNotificationConfig requires url" });
         return;
       }
-      if (!isValidWebhookUrl(config.url)) {
+      if (!isValidWebhookUrl(config.url, this.allowLocalhost)) {
         res.status(400).json({ error: "Invalid webhook URL: must be public http(s), no private/loopback IPs" });
         return;
       }
@@ -283,7 +294,7 @@ export class SharedStateServer {
       // If config has taskId filter, only fire for matching tasks
       if (config.taskId && config.taskId !== taskId) continue;
       // SSRF guard — skip invalid URLs at fire time too
-      if (!isValidWebhookUrl(config.url)) {
+      if (!isValidWebhookUrl(config.url, this.allowLocalhost)) {
         console.warn(`[Push] Skipping invalid webhook URL: ${config.url}`);
         continue;
       }
@@ -554,7 +565,8 @@ export class SharedStateServer {
         const response = await this.rpc.dispatch(body as JsonRpcRequest);
         res.json(response);
       } catch (err: unknown) {
-        res.status(500).json({ jsonrpc: "2.0", id: null, error: { code: -32603, message: String(err) }});
+        console.error("[SharedState] RPC error:", err);
+        res.status(500).json({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "Internal error" }});
       }
     });
   }
@@ -900,7 +912,9 @@ export class SharedStateClient {
       }
     };
 
-    connect();
+    connect().catch((err) => {
+      if (!closed) console.warn("[SharedStateClient] SSE connect failed:", err.message ?? err);
+    });
     return () => {
       closed = true;
       controller.abort();
@@ -911,6 +925,7 @@ export class SharedStateClient {
     const timeout = options?.timeout ?? 120_000;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+                unsub();
                 reject(new Error(`Task ${taskId} timed out after ${timeout}ms`));
       }, timeout);
       let completed = false;

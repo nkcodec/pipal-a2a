@@ -22,7 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readFileSync } from "fs";
-import { load, DEFAULT_SCHEMA } from "js-yaml";
+import { load, JSON_SCHEMA } from "js-yaml";
 import { resolve } from "path";
 import {
   createAgentCard,
@@ -107,7 +107,7 @@ function loadConfig(): ExtensionConfig {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      const loaded = load(content, { schema: DEFAULT_SCHEMA }) as Partial<ExtensionConfig>;
+      const loaded = load(content, { schema: JSON_SCHEMA }) as Partial<ExtensionConfig>;
       // Merge loaded config with defaults — identity may be absent in YAML
       config = {
         sharedState: loaded.sharedState ?? config.sharedState,
@@ -332,7 +332,7 @@ function loadWorkflows(): Map<string, Workflow> {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      const data = load(content, { schema: DEFAULT_SCHEMA }) as any;
+      const data = load(content, { schema: JSON_SCHEMA }) as any;
       if (data?.workflows) {
         for (const [key, wf] of Object.entries(data.workflows)) {
           const w = wf as any;
@@ -532,7 +532,7 @@ function loadTeamRoles(): Map<string, TeamRole> {
   for (const p of paths) {
     try {
       const content = readFileSync(p, "utf8");
-      const data = load(content, { schema: DEFAULT_SCHEMA }) as any;
+      const data = load(content, { schema: JSON_SCHEMA }) as any;
       if (data?.team?.roles) {
         for (const [key, val] of Object.entries(data.team.roles)) {
           const r = val as any;
