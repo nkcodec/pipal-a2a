@@ -44,6 +44,7 @@ let rolesLoaded = false;  // Prevent repeated team.yaml warnings
 interface ExtensionConfig {
   sharedState: string;
   role?: string;
+  host?: string;       // server bind address: "127.0.0.1" (default) or "0.0.0.0" (multi-machine)
   identity: {
     name: string;
     description?: string;
@@ -88,6 +89,7 @@ function loadConfig(): ExtensionConfig {
   loadEnvFile(); // Load .env into process.env BEFORE any config resolution
   let config: ExtensionConfig = {
     sharedState: "http://localhost:5000",
+    host: "127.0.0.1",
     identity: {
       name: `agent-${Math.random().toString(36).slice(2, 8)}`,
       skills: [],
@@ -109,6 +111,7 @@ function loadConfig(): ExtensionConfig {
       // Merge loaded config with defaults — identity may be absent in YAML
       config = {
         sharedState: loaded.sharedState ?? config.sharedState,
+        host: loaded.host ?? config.host,
         role: loaded.role,
         apiKey: loaded.apiKey,
         identity: loaded.identity ?? config.identity,
@@ -587,10 +590,14 @@ export default function (pi: ExtensionAPI) {
     if (isHost) {
       try {
         server = new SharedStateServer();
-        await server.start(parsedPort);
+        await server.start(parsedPort, config.host);
         if (config.apiKey) {
           server.addApiKey(config.apiKey);
           console.log(`[pipal-a2a] 🔐 Auth enabled — API key required`);
+        }
+        if (config.host === "0.0.0.0" && !config.apiKey) {
+          console.warn(`[pipal-a2a] ⚠️  WARNING: host=0.0.0.0 with NO API key — anyone on the network can connect!`);
+          console.warn(`[pipal-a2a]    Add apiKey to config/pipal-a2a.yaml or .env`);
         }
         console.log(`[pipal-a2a] 🏠 HOST mode — shared state at ${sharedStateUrl}`);
       } catch (err: any) {
