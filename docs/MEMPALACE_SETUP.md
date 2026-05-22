@@ -52,6 +52,8 @@ wing_my_project/
 
 ## How It Works
 
+Planner sees `promptGuidelines` in the delegate tool — these remind the planner to call MemPalace before/after delegation. Agents never see MemPalace reminders.
+
 ### Before Delegation
 Planner searches MemPalace for prior work:
 ```
@@ -60,18 +62,12 @@ mempalace_kg_query({ entity: "todo-app" })
 ```
 
 ### After Delegation
-Agent calls 3 tools to record completion:
+Planner calls 3 tools to record completion:
 ```
 mempalace_add_drawer({ wing: "wing_my_project", room: "shared", content: "..." })
 mempalace_kg_add({ subject: "todo-app", predicate: "has_backend", object: "completed" })
-mempalace_diary_write({ agent_name: "backend", entry: "PROJ:todo-app|TASK:...|AGENT:backend|★★★★", wing: "wing_my_project" })
+mempalace_diary_write({ agent_name: "planner", entry: "PROJ:todo-app|TASK:...|AGENT:backend|★★★★", wing: "wing_my_project" })
 ```
-
-### If MemPalace Fails
-Agents follow CRITICAL RULES:
-1. If ANY tool fails → report `MEMPALACE FAILED: <error>`
-2. Do NOT try to fix or restart MemPalace yourself
-3. Task is NOT complete until MemPalace is updated
 
 ## Config Options
 

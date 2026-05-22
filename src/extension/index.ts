@@ -439,27 +439,11 @@ async function executeWorkflowIfMatch(
 
     console.log(`[pipal-a2a] 📤 Delegating to ${step.role}: "${effectiveTask.slice(0, 60)}..."`);
 
-    // Prepend MemPalace reminder to workflow task (only if enabled)
-    const mempalaceReminder = config.mempalace?.enabled
-      ? (() => {
-          const wing = config.mempalace!.wing;
-          const room = config.mempalace!.sharedRoom;
-          return `\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n` +
-            `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
-            `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_<agent>", object: "completed" })\n` +
-            `3. mempalace_mempalace_diary_write({ agent_name: "<agent>", entry: "PROJ:<project>|TASK:...|AGENT:<agent>|★★★★", wing: "${wing}" })\n\n` +
-            `⚠️ CRITICAL RULES:\n` +
-            `1. If ANY MemPalace tool FAILS — do NOT reply with success. Report: "MEMPALACE FAILED: <tool> failed — <error>"\n` +
-            `2. Do NOT try to fix or restart MemPalace yourself. Planner handles infrastructure.\n` +
-            `3. The task is NOT complete until MemPalace is updated. Planner must know.\n\n`;
-        })()
-      : "";
-
     // Execute delegation with result capture
     const taskId = await client.createTask({
       from: card.name,
       to: step.role,
-      task: `${mempalaceReminder}${effectiveTask}`,
+      task: effectiveTask,
     });
 
     const result = await waitForTaskCompletion(client, taskId, 120_000, signal, onUpdate, card.name, target.name);
@@ -653,8 +637,8 @@ export default function (pi: ExtensionAPI) {
     if (config.mempalace?.enabled) {
       console.log(`[pipal-a2a] 🧠 MemPalace: enabled (${config.mempalace.wing}/${config.mempalace.sharedRoom}) — checking...`);
       // Note: MCP availability is LLM-level. We can't sync-call MCP tools here.
-      // Agents will report MEMPALACE FAILED if tools are unavailable at runtime.
-      console.log(`[pipal-a2a] ⚠️  If MemPalace MCP not installed/running, agents will report MEMPALACE FAILED.`);
+      // Planner's promptGuidelines include MemPalace calls.
+      console.log(`[pipal-a2a] ⚠️  Ensure MemPalace MCP is running — planner will call it after delegations.`);
       console.log(`[pipal-a2a]    Install: npm install -g mempalace-mcp`);
       console.log(`[pipal-a2a]    Start: mempalace-mcp --palace <path>`);
     }
@@ -808,26 +792,6 @@ export default function (pi: ExtensionAPI) {
     const skill = data?.skill;
     const description = data?.task || "";
 
-    // Inject MemPalace reminder into taskMessage sent to agent (only if enabled)
-    const mempalaceReminder = config.mempalace?.enabled && from !== card.name
-      ? (() => {
-          const wing = config.mempalace!.wing;
-          const room = config.mempalace!.sharedRoom;
-          return `\n\n🧠 **MemPalace Reminder:** After completing this task, call MemPalace tools:\n` +
-            `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
-            `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_<agent>", object: "completed" })\n` +
-            `3. mempalace_mempalace_diary_write({ agent_name: "<agent>", entry: "PROJ:<project>|TASK:...|AGENT:<agent>|★★★★", wing: "${wing}" })\n\n` +
-            `⚠️ CRITICAL RULES:\n` +
-            `1. If ANY MemPalace tool FAILS — do NOT reply with success.\n` +
-            `   Report: "MEMPALACE FAILED: <tool> failed — <error>"\n` +
-            `2. Do NOT try to fix or restart MemPalace yourself.\n` +
-            `   Planner handles infrastructure. You report, not fix.\n` +
-            `3. The task is NOT complete until MemPalace is updated. Planner must know.`;
-        })()
-      : "";
-
-    console.log(`[pipal-a2a] 🔍 handleIncomingTask description length: ${description.length}, reminder: ${mempalaceReminder.length} chars`);
-
     if (!taskId) {
       console.error(`[pipal-a2a] ❌ handleIncomingTask: no taskId in data:`, JSON.stringify(data).slice(0, 200));
       return;
@@ -864,9 +828,7 @@ export default function (pi: ExtensionAPI) {
 
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
-      `Please complete this task using your tools. Your response will be sent back to ${from}.\n\n${mempalaceReminder}`;
-
-    console.log(`[pipal-a2a] 📩 taskMessage with reminder: ${taskMessage.length} total chars, reminder ${mempalaceReminder.length} chars`);
+      `Please complete this task using your tools. Your response will be sent back to ${from}.`;
 
     try {
       pi.sendUserMessage(taskMessage);
@@ -1086,23 +1048,10 @@ export default function (pi: ExtensionAPI) {
             ? new Date(result.status.timestamp).getTime() - (result.metadata?.createdAt as number || 0)
             : 0;
 
-          // MemPalace reminder only if enabled
-          const mempalaceReminder = config.mempalace?.enabled && card.name !== targetCard.name
-            ? (() => {
-                const wing = config.mempalace!.wing;
-                const room = config.mempalace!.sharedRoom;
-                return `\n\n🧠 **MemPalace Reminder:** Verify MemPalace tools were called:\n` +
-                  `1. mempalace_mempalace_add_drawer({ wing: "${wing}", room: "${room}", content: "..." })\n` +
-                  `2. mempalace_mempalace_kg_add({ subject: "<project>", predicate: "has_${targetCard.name}", object: "completed" })\n` +
-                  `3. mempalace_mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:...|AGENT:${targetCard.name}|★★★★", wing: "${wing}" })\n\n` +
-                  `⚠️ If MemPalace was NOT called — call it now. Planner must track all completions.`;
-              })()
-            : "";
-
           return {
             content: [{
               type: "text" as const,
-              text: `**Result from ${targetCard.name}:**\n\n${resultText}${mempalaceReminder}`,
+              text: `**Result from ${targetCard.name}:**\n\n${resultText}`,
             }],
             details: {
               taskId,
