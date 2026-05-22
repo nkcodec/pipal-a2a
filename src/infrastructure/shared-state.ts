@@ -114,7 +114,7 @@ export class SharedStateServer {
     this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
 
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(port, () => {
+      this.server = this.app.listen(port, "127.0.0.1", () => {
         const url = `http://localhost:${port}`;
         console.log(`[SharedState] Rendezvous server at ${url}`);
         resolve(url);
