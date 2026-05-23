@@ -632,12 +632,7 @@ export default function (pi: ExtensionAPI) {
     }, {
       onReconnect: async () => {
         // Server came back — re-register this agent
-        try {
-          // Unregister first (clears stale entry from DB), then re-register
-          await client.unregister(card.name);
-        } catch {
-          // Not registered — that's fine (fresh start)
-        }
+        // Register now upserts on existing name (crash recovery)
         try {
           await client.register(card);
           registry.register(card);

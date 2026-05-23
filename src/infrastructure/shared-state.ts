@@ -259,7 +259,10 @@ export class SharedStateServer {
       }
       const existing = this.store.getAgent(card.name);
       if (existing) {
-        res.status(409).json({ error: `Agent '${card.name}' already registered. Unregister first.` });
+        // Same agent reconnecting (crash recovery or restart) — update card
+        this.store.setAgent(card);
+        console.log(`[SharedState] Agent re-registered: ${card.name}`);
+        res.json({ ok: true, agentId: card.name, recovered: true });
         return;
       }
       this.store.setAgent(card);
