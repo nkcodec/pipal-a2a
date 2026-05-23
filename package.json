@@ -1,6 +1,6 @@
 {
   "name": "pipal-a2a",
-  "version": "0.2.0",
+  "version": "0.3.2",
   "description": "P2P multi-agent orchestration — each pi terminal IS an agent",
   "type": "module",
   "main": "src/cli/index.ts",
