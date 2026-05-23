@@ -32,6 +32,7 @@ import {
 } from "../core/types.js";
 import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
 import type { StoredTask } from "../core/types.js";
+import { ResponseCapture } from "./response-capture.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
 // DefaultTaskRouter removed — dead import (never used, SmartRouter handles routing directly)
 import { SmartRouter } from "../builtin/smart-router.js";
@@ -580,11 +581,12 @@ export default function (pi: ExtensionAPI) {
 
   const registry = new InMemoryAgentRegistry();
 
-  // Track delegated tasks for result capture
-  let currentDelegatedTaskId: string | null = null;
-  let lastAssistantText = "";
-  let lastStreamedLength = 0;
-  let resultTimer: ReturnType<typeof setTimeout> | null = null;
+  // Response capture — explicit state machine for LLM response → shared state
+  const capture = new ResponseCapture({
+    postResult: (id, r) => client!.postResult(id, r),
+    postError: (id, e) => client!.postError(id, e),
+    streamChunk: (id, c) => client!.streamChunk(id, c),
+  });
 
   // ───────────────────────────────────────────────────────────────
   // Lifecycle: session_start
@@ -686,96 +688,15 @@ export default function (pi: ExtensionAPI) {
 
   // ───────────────────────────────────────────────────────────────
   // Capture LLM responses for delegated tasks
-  // Strategy: capture streaming text from message_update,
-  // then use agent_end event.messages as the authoritative source.
+  // Encapsulated in ResponseCapture class — explicit state machine.
   // ───────────────────────────────────────────────────────────────
-  // Capture LLM responses for delegated tasks
-  //
-  // Strategy: Quiescence timer.
-  // After each message_update with assistant content, start a 15s timer.
-  // If no new content arrives within 15s, post the result.
-  // Also post on agent_end if it fires (primary path when available).
-  //
-  // Why not just agent_end?
-  //   - sendUserMessage() triggers a spurious agent_end for the idle turn
-  //   - The real agent_end may never fire if the turn hangs (auto-commit etc)
-  // ───────────────────────────────────────────────────────────────
-
-  async function postDelegatedResult(): Promise<void> {
-    if (!currentDelegatedTaskId || !client) return;
-
-    const taskId = currentDelegatedTaskId;
-    currentDelegatedTaskId = null;
-    if (resultTimer) { clearTimeout(resultTimer); resultTimer = null; }
-
-    const resultText = lastAssistantText || "Task completed";
-    lastAssistantText = "";
-    lastStreamedLength = 0;
-    console.log(`[pipal-a2a] 📤 Posting result for ${taskId.slice(0, 8)} (${resultText.length} chars)`);
-    try {
-      await client.postResult(taskId, resultText);
-      console.log(`[pipal-a2a] ✅ Result posted for ${taskId.slice(0, 8)}`);
-    } catch (error) {
-      console.error(`[pipal-a2a] ❌ Failed to post result:`, error);
-      try { await client.postError(taskId, String(error)); } catch {}
-    }
-  }
-
-  function resetQuiescenceTimer(): void {
-    if (resultTimer) clearTimeout(resultTimer);
-    resultTimer = setTimeout(() => {
-      console.log(`[pipal-a2a] ⏱️  Quiescence timer — 15s with no new content, posting result`);
-      resultTimer = null;
-      postDelegatedResult();
-    }, 15_000);
-  }
 
   pi.on("message_update", (event: any) => {
-    if (!currentDelegatedTaskId) return;
-
-    try {
-      const msg = event?.message;
-      let captured = "";
-
-      if (msg?.content) {
-        if (typeof msg.content === "string" && msg.content.length > 0) {
-          captured = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          captured = msg.content
-            .filter((b: any) => b.type === "text" && b.text)
-            .map((b: any) => b.text)
-            .join("\n");
-        }
-      }
-
-      if (!captured && event?.content && typeof event.content === "string") {
-        captured = event.content;
-      }
-
-      if (captured) {
-        lastAssistantText = captured;
-        resetQuiescenceTimer();
-
-        // Stream the delta chunk to the planner via SSE
-        if (client && currentDelegatedTaskId) {
-          const prevLen = lastStreamedLength;
-          if (captured.length > prevLen) {
-            const chunk = captured.slice(prevLen);
-            lastStreamedLength = captured.length;
-            client.streamChunk(currentDelegatedTaskId, chunk).catch(() => {});
-          }
-        }
-      }
-    } catch {
-      // Non-critical
-    }
+    capture.onMessageUpdate(event);
   });
 
   pi.on("agent_end", async (_event: any) => {
-    if (currentDelegatedTaskId && lastAssistantText) {
-      console.log(`[pipal-a2a] 📤 Posting result for ${currentDelegatedTaskId.slice(0, 8)} (${lastAssistantText.length} chars)`);
-      await postDelegatedResult();
-    }
+    await capture.onAgentEnd();
   });
 
   // ───────────────────────────────────────────────────────────────
@@ -829,7 +750,7 @@ export default function (pi: ExtensionAPI) {
     const isSkillMatch = !to && skill && card.skills.some((s) => s.id === skill);
     if (!isDirect && !isSkillMatch) return;
     if (from === card?.name) return;
-    if (currentDelegatedTaskId) {
+    if (capture.isActive) {
       await client.postError(taskId, "Agent busy with another task");
       return;
     }
@@ -850,9 +771,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     console.log(`[pipal-a2a] 📩 Delegated task from ${from}: "${String(description).slice(0, 60)}..."`);
-    currentDelegatedTaskId = taskId;
-    lastAssistantText = "";
-    lastStreamedLength = 0;
+    capture.start(taskId);
 
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
@@ -863,7 +782,7 @@ export default function (pi: ExtensionAPI) {
     } catch (error) {
       console.error(`[pipal-a2a] ❌ sendUserMessage FAILED:`, error);
       await client.postError(taskId, `Failed to inject task: ${error}`);
-      currentDelegatedTaskId = null;
+      capture.cancel();
     }
   }
 
@@ -1295,7 +1214,7 @@ export default function (pi: ExtensionAPI) {
       question: Type.String({ description: "The follow-up question to ask the delegating agent" }),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      if (!client || !currentDelegatedTaskId) {
+      if (!client || !capture.currentTaskId) {
         return {
           content: [{ type: "text" as const, text: "Error: No active delegated task to ask about." }],
           details: { error: "no_task" },
@@ -1303,17 +1222,17 @@ export default function (pi: ExtensionAPI) {
       }
 
       try {
-        const task = await client.sendFollowUp(currentDelegatedTaskId, params.question, {
+        const task = await client.sendFollowUp(capture.currentTaskId, params.question, {
           role: "ROLE_AGENT",
           requireInput: true,
         });
-        console.log(`[pipal-a2a] ❓ Asked follow-up on ${currentDelegatedTaskId.slice(0, 8)}: "${params.question.slice(0, 40)}..."`);
+        console.log(`[pipal-a2a] ❓ Asked follow-up on ${capture.currentTaskId.slice(0, 8)}: "${params.question.slice(0, 40)}..."`);
         return {
           content: [{
             type: "text" as const,
             text: `Question sent to delegating agent. Waiting for response...`,
           }],
-          details: { taskId: currentDelegatedTaskId, asked: true },
+          details: { taskId: capture.currentTaskId, asked: true },
         };
       } catch (error) {
         return {
