@@ -60,12 +60,4 @@ export class DefaultTaskRouter implements TaskRouter {
   }
 }
 
-// Protocol compliance check
-import type { TaskRouter as TaskRouterType } from "../sdk/index.js";
-const _router: TaskRouterType = new DefaultTaskRouter({ 
-  register: () => {}, 
-  unregister: () => {}, 
-  get: () => undefined, 
-  findBySkill: () => [], 
-  list: () => [] 
-});
+

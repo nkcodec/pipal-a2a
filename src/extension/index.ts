@@ -21,7 +21,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
 import { load, JSON_SCHEMA } from "js-yaml";
 import { resolve } from "path";
 import {
@@ -32,7 +32,7 @@ import {
 } from "../core/types.js";
 import { SharedStateServer, SharedStateClient, type StoredTask } from "../infrastructure/shared-state.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
-import { DefaultTaskRouter } from "../application/router.js";
+// DefaultTaskRouter removed — dead import (never used, SmartRouter handles routing directly)
 import { SmartRouter } from "../builtin/smart-router.js";
 
 // ─────────────────────────────────────────────────────────────────
@@ -52,6 +52,7 @@ interface ExtensionConfig {
     tags: string[];
   };
   apiKey?: string;
+  dbPath?: string;
   // MemPalace — swappable memory/KB backend
   // Config activates, not defines. Core doesn't know about MemPalace specifics.
   mempalace?: {
@@ -400,7 +401,7 @@ async function executeWorkflowIfMatch(
   // Create working directory first — enforces project isolation
   // Agent MUST work in this directory
   if (matchedWorkflow.working_dir) {
-    const { existsSync, mkdirSync } = require('fs');
+// existsSync, mkdirSync imported at top (ESM, not require)
     try {
       if (!existsSync(matchedWorkflow.working_dir)) {
         mkdirSync(matchedWorkflow.working_dir, { recursive: true });
@@ -570,7 +571,6 @@ export default function (pi: ExtensionAPI) {
   let card: AgentCard | null = null;
 
   const registry = new InMemoryAgentRegistry();
-  const router = new DefaultTaskRouter(registry);
 
   // Track delegated tasks for result capture
   let currentDelegatedTaskId: string | null = null;

@@ -37,6 +37,4 @@ export class InMemoryAgentRegistry implements AgentRegistry {
   }
 }
 
-// Protocol compliance check
-import type { AgentRegistry as AgentRegistryType } from "../sdk/index.js";
-const _registry: AgentRegistryType = new InMemoryAgentRegistry();
+

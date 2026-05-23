@@ -40,5 +40,3 @@ export class SkillMatcher implements RoutingStrategy {
   }
 }
 
-// Protocol compliance check at definition time
-const _matcher: RoutingStrategy = new SkillMatcher();

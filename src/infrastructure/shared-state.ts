@@ -40,20 +40,7 @@ export interface StoredTask extends Task {
 // JSON-RPC Helpers
 // ─────────────────────────────────────────────────────────────────
 
-function errorResp(id: number | string | null, err: JsonRpcError): JsonRpcResponse {
-  return { jsonrpc: "2.0", id, error: err };
-}
-
-function okResp(id: number | string | null, result: unknown): JsonRpcResponse {
-  return { jsonrpc: "2.0", id, result };
-}
-
-function taskNotFound(id: number | string | null, taskId: string): JsonRpcResponse {
-  return errorResp(id, {
-    code: JSONRPC_CODES.TASK_NOT_FOUND,
-    message: `Task '${taskId}' not found`,
-  });
-}
+// Removed dead helper functions: errorResp, okResp, taskNotFound — never called
 
 // ─────────────────────────────────────────────────────────────────
 // SSRF Protection — Webhook URL validation
