@@ -12,6 +12,11 @@
 # First terminal auto-starts the server here, others connect to it.
 sharedState: http://localhost:5000
 
+# Agent isolation strategy — prevents file conflicts when multiple agents edit the same project
+#   "none"     (default) — agents share working directory
+#   "worktree"          — git worktree per agent, each on its own branch
+# isolation: none
+
 # Server bind address
 # "127.0.0.1" — localhost only (default, secure, single machine)
 # "0.0.0.0"   — all interfaces (multi-machine, requires apiKey!)

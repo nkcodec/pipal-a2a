@@ -26,6 +26,7 @@ v0.3.0  ← Workflow PreHook ✅
 v0.3.1  ← MemPalace integration ✅
 v0.3.2  ← Full A2A spec compliance + security audit ✅
 v0.3.2+ ← SQLite crash recovery + dead code cleanup + structural fixes ✅
+v0.4.0  ← Agent isolation via git worktrees ✅
 ```
 
 ---
@@ -97,7 +98,77 @@ v0.3.2+ ← SQLite crash recovery + dead code cleanup + structural fixes ✅
 - Config: `mempalace.enabled`, `wing`, `sharedRoom`
 - OFF by default (config activates, not defines)
 
-**163 tests. 16 files. Real 3-agent E2E with crash recovery verified.**
+**179 tests. 16 files. Real 3-agent E2E with crash recovery verified.**
+
+---
+
+## v0.4.0 — Agent Isolation (git worktrees) ✅ SHIPPED
+
+Prevents file conflicts when multiple agents edit the same project.
+
+### Architecture
+
+```
+src/builtin/isolation/
+  isolation.ts         — IsolationStrategy interface (strategy pattern)
+  no-isolation.ts      — default strategy (agents share cwd, zero overhead)
+  worktree-isolation.ts — git worktree per agent
+```
+
+Config activates, not defines (same as RoutingStrategy).
+
+### Isolation Strategies
+
+| Strategy | Config | Behavior |
+|----------|--------|----------|
+| NoIsolation | `isolation: none` (default) | Agents share cwd — current behavior |
+| WorktreeIsolation | `isolation: worktree` | Git worktree per agent on `agent/<name>` branch |
+
+### Lifecycle
+
+```
+prepare()  → git worktree add .pipal-a2a/worktrees/<agent> -b agent/<agent>
+finalize() → git add -A && git commit (in the worktree)
+cleanup()  → git worktree remove (on disconnect)
+```
+
+### 3-Agent Review (security + implementation + UX)
+
+All issues verified FIXED by 3 agents before ship:
+
+| Severity | Issue | Fix |
+|----------|-------|-----|
+| 🔴 CRITICAL | Shell injection via agentName in execSync | `execFile()` array args + `validateName()` (alphanumeric only) |
+| 🔴 CRITICAL | Path traversal (../../etc in agentName) | `resolve()` + startsWith check in getWorkDir() |
+| 🔴 CRITICAL | Silent data loss (finalize swallows, cleanup removes) | finalize() returns `{success, error}`, skip cleanup on failure |
+| 🟠 HIGH | execSync blocks event loop | Async `execFile()` for all git ops |
+| 🟠 HIGH | Race condition on prepare/cleanup | Per-agent mutex (withLock) |
+| 🟠 HIGH | Orphan worktrees (no crash cleanup) | `cleanupStale()` at startup + worktree prune |
+| 🟠 HIGH | Undocumented (README had zero isolation mention) | Added Agent Isolation section to README |
+| 🟠 HIGH | Planner no merge promptGuidelines | Added merge guideline to pipal_a2a_delegate |
+| 🟡 MEDIUM | Merge tool branch injection risk | Regex validation `^agent/[a-zA-Z0-9_-]+$` |
+| 🟡 MEDIUM | Merge conflict UX unhelpful | Structured 3-option guidance (resolve manually / theirs / abort) |
+| 🟡 MEDIUM | Git hooks break in worktrees | `--no-verify` on commit |
+| 🟡 MEDIUM | Worktree not in .gitignore | `.pipal-a2a/` already in .gitignore (v0.3.2) |
+
+### Tests: 179 passing (17 files)
+
+New isolation tests:
+- Shell injection rejection (`, $, `, ..)
+- Path traversal rejection (../../etc)
+- finalize() returns {success, error}
+- cleanupStale() removes orphan directories
+- Multiple agents get separate worktrees
+- finalize() commits changes correctly
+
+### E2E Verified (real tmux sessions)
+
+```
+✅ 3-agent delegation: backend, frontend, reviewer all created files
+✅ SSE event routing: task routed from planner → backend → result
+✅ Crash recovery: backend killed → frontend worked → backend recovered
+✅ All 3 agents confirmed all 16 issues fixed (reviewer + backend + frontend)
+```
 
 ---
 
@@ -184,4 +255,4 @@ Correct for 3-5 agents on localhost. True P2P mesh is YAGNI.
 7. ✅ **Secure** — localhost binding, SSRF protection, YAML RCE prevented
 8. ✅ **Zero config** — Works with defaults, configurable when needed
 9. ✅ **Crash-safe** — SQLite WAL mode, auto-reconnect, upsert re-registration
-10. ✅ **163 tests** — Core, infrastructure, extension, routing, E2E, crash recovery
+10. ✅ **179 tests** — Core, infrastructure, extension, routing, isolation, E2E, crash recovery

@@ -223,6 +223,41 @@ This is correct for 3-5 agents on localhost — true P2P mesh is YAGNI.
 | Resolve task | 1.8ms | <1ms |
 | List agents | 0.8ms | <1ms |
 
+## Agent Isolation (worktree)
+
+Prevent file conflicts when multiple agents edit the same project. Each agent gets its own git worktree on a dedicated branch.
+
+```yaml
+# config/pipal-a2a.yaml
+isolation: worktree  # default: none (agents share cwd)
+```
+
+**How it works:**
+```
+prepare()  → git worktree add .pipal-a2a/worktrees/<agent> -b agent/<agent>
+finalize() → git add -A && git commit (in the worktree)
+cleanup()  → git worktree remove (on disconnect)
+```
+
+**Workflow:**
+```
+1. pi starts → isolation.prepare(agentName) creates worktree
+2. Agent edits files in isolated directory
+3. Task completes → isolation.finalize() commits changes
+4. Agent disconnects → isolation.cleanup() removes worktree
+5. Planner calls pipal_a2a_merge({ branch: 'agent/backend' }) to integrate
+```
+
+**Available strategies:**
+| Strategy | Config value | Description |
+|----------|-------------|-------------|
+| NoIsolation | `none` (default) | Agents share cwd — zero overhead, current behavior |
+| WorktreeIsolation | `worktree` | Git worktree per agent — prevents file conflicts |
+
+**Security:** Shell injection and path traversal blocked via `validateName()` (alphanumeric only) + `execFile()` (no shell).
+
+**Crash recovery:** Orphan worktrees pruned on startup via `cleanupStale()`. Finalize errors preserve worktree (no silent data loss).
+
 ## License
 
 MIT
