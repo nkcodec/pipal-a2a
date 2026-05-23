@@ -108,25 +108,31 @@ v0.3.2  ← Full A2A spec compliance + security audit ✅
 ## Architecture
 
 ```
-Terminal 1 (planner)       Terminal 2 (backend)        Terminal 3 (reviewer)
-┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐
-│ pi + extension   │      │ pi + extension   │      │ pi + extension   │
-│ planner          │      │ backend          │      │ reviewer         │
-│                  │      │                  │      │                  │
-│ Delegates task ──┼─────►│ Does work        │      │                  │
-│                  │◄─────┼─ Returns result  │      │                  │
-│                  │      │                  │      │                  │
-│ Delegates task ──┼────────────────────────────────►│ Does review     │
-└──────────────────┘      └──────────────────┘      └──────────────────┘
-          │                           │                           │
-          └───────── JSON-RPC + SSE ──┴───────── JSON-RPC + SSE ──┘
-                              │
-                    ┌─────────┴──────────┐
-                    │   Shared State     │
-                    │   localhost:5000   │  ← First terminal auto-starts
-                    │   (rendezvous)     │     Others JOIN via SSE
-                    └────────────────────┘
+Star topology (hub-and-spoke)
+                         
+  Terminal 1 (planner = HOST)
+  ┌──────────────────────┐
+  │  Shared State Server  │ ← first terminal auto-starts
+  │  localhost:5000       │    others JOIN as clients
+  │  (rendezvous + SSE)   │
+  └──────┬───┬───┬────────┘
+         │   │   │  JSON-RPC + SSE
+    ┌────┘   │   └────┐
+    ▼        ▼        ▼
+ backend  reviewer  frontend
+ (JOIN)   (JOIN)    (JOIN)
 ```
+
+**Honest assessment:** This is star topology, not true P2P mesh.
+
+- The first agent to start becomes HOST (runs the server)
+- All other agents JOIN as clients
+- ALL communication routes through HOST
+- If HOST dies, the network dies (single point of failure)
+- Any agent CAN delegate to any other — but traffic goes through the server
+
+This is correct for the use case (3-5 agents on localhost).
+True P2P mesh (Gossip, Raft, CRDTs) is YAGNI until someone needs 50+ agents or fault tolerance.
 
 ---
 

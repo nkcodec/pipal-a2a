@@ -142,18 +142,20 @@ npm test        # 145 tests
 ## Architecture
 
 ```
-src/
-├── core/types.ts           ← Google A2A v1.0 data model (FROZEN)
-├── sdk/index.ts            ← AgentRegistry, TaskRouter
-├── builtin/
-│   ├── skill-matcher.ts    ← Skill-based routing
-│   └── smart-router.ts     ← Tag-based auto-routing
-├── infrastructure/
-│   └── shared-state.ts     ← SharedStateServer + Client + SSE
-├── extension/
-│   └── index.ts            ← Main extension (delegate, workflows, clarity guard)
-└── cli/index.ts            ← CLI entry point
+Star topology (hub-and-spoke):
+
+  planner (HOST + Shared State Server)
+  ┌──────────────────────┐
+  │  localhost:5000       │
+  │  JSON-RPC + SSE       │
+  └──┬───┬───┬────────────┘
+     │   │   │
+ back rev front (all JOIN as clients)
 ```
+
+First agent to start becomes HOST (runs server). Others JOIN.
+All traffic routes through HOST. If HOST dies, network dies.
+This is correct for 3-5 agents on localhost — true P2P mesh is YAGNI.
 
 ## License
 
