@@ -30,7 +30,8 @@ import {
   type AgentCard,
   type AgentSkill,
 } from "../core/types.js";
-import { SharedStateServer, SharedStateClient, type StoredTask } from "../infrastructure/shared-state.js";
+import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
+import type { StoredTask } from "../core/types.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
 // DefaultTaskRouter removed — dead import (never used, SmartRouter handles routing directly)
 import { SmartRouter } from "../builtin/smart-router.js";
@@ -482,37 +483,44 @@ function waitForTaskCompletion(
     if (signal.aborted) return reject(new Error("Aborted"));
 
     const timer = setTimeout(() => reject(new Error("Task timeout")), timeoutMs);
-
     let accumulated = "";
 
     const unsub = client.subscribeToTask(taskId, (event, data) => {
-      if (signal.aborted) {
-        clearTimeout(timer);
-        unsub();
-        return reject(new Error("Aborted"));
-      }
+      if (signal.aborted) { clearTimeout(timer); unsub(); return reject(new Error("Aborted")); }
 
       if (event === "artifact_update" && (data as any)?.chunk) {
         accumulated += (data as any).chunk;
         if (onUpdate) {
           onUpdate({
-            content: [{ type: "text" as const, text: accumulated }],
+            content: [{ type: "text" as const, text: `**Streaming from ${toName}:**\n${accumulated}▍` }],
             details: { taskId, from: fromName, to: toName, streaming: true },
           });
         }
       }
+      // Multi-turn: agent asks a follow-up question
+      if (event === "task_update") {
+        const status = (data as any)?.status;
+        if (status?.state === "TASK_STATE_INPUT_REQUIRED") {
+          (async () => {
+            try {
+              const taskNow = await client.getTask(taskId);
+              const lastAgentMsg = [...(taskNow.history || [])].reverse().find((m) => m.role === "ROLE_AGENT");
+              const question = lastAgentMsg?.parts?.[0]?.text ?? "The agent needs more information.";
+              accumulated += `\n\n❓ **${toName} asks:** ${question}\n*Responding automatically with task context...*\n`;
+              if (onUpdate) {
+                onUpdate({ content: [{ type: "text" as const, text: accumulated }], details: { taskId, from: fromName, to: toName, inputRequired: true } });
+              }
+              await client.sendFollowUp(taskId, `Continue with the task. Original request: ${(taskNow as any).taskDescription}`, { role: "ROLE_USER" });
+            } catch (err) { console.error("[pipal-a2a] multi-turn error:", err); }
+          })();
+        }
+      }
       if (event === "task_completed" || event === "task_failed") {
-        clearTimeout(timer);
-        unsub();
-        client.getTask(taskId).then(resolve).catch(reject);
+        clearTimeout(timer); unsub(); client.getTask(taskId).then(resolve).catch(reject);
       }
     });
 
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      unsub();
-      reject(new Error("Aborted"));
-    });
+    signal.addEventListener("abort", () => { clearTimeout(timer); unsub(); reject(new Error("Aborted")); });
   });
 }
 
@@ -1004,61 +1012,10 @@ export default function (pi: ExtensionAPI) {
 
         console.log(`[pipal-a2a] 📤 Task ${taskId.slice(0, 8)} → ${targetCard.name}: "${params.task.slice(0, 50)}..."`);
 
-        // Stream results via SSE — show each chunk via onUpdate as it arrives
-        const result = await new Promise<StoredTask>((resolve, reject) => {
-          let accumulated = "";
-          const timer = setTimeout(
-            () => reject(new Error(`Task ${taskId} timed out after 120s`)),
-            120_000,
-          );
-
-          const unsub = client.subscribeToTask(taskId, (event, data) => {
-            if (event === "artifact_update" && (data as any).chunk) {
-              accumulated += (data as any).chunk;
-              // Stream each chunk to the planner's TUI
-              if (onUpdate) {
-                onUpdate({
-                  content: [{
-                    type: "text" as const,
-                    text: `**Streaming from ${targetCard.name}:**\n${accumulated}▍`,
-                  }],
-                  details: { taskId, from: card.name, to: targetCard.name, streaming: true },
-                });
-              }
-            }
-            // Multi-turn: backend asks a follow-up question
-            if (event === "task_update") {
-              const status = (data as any)?.status;
-              if (status?.state === "TASK_STATE_INPUT_REQUIRED") {
-                // Fire async — can't await in sync SSE callback
-                (async () => {
-                  try {
-                    const taskNow = await client.getTask(taskId);
-                    const lastAgentMsg = [...(taskNow.history || [])]
-                      .reverse()
-                      .find((m) => m.role === "ROLE_AGENT");
-                    const question = lastAgentMsg?.parts?.[0]?.text ?? "The agent needs more information.";
-                    accumulated += `\n\n❓ **${targetCard.name} asks:** ${question}\n*Responding automatically with task context...*\n`;
-                    if (onUpdate) {
-                      onUpdate({
-                        content: [{ type: "text" as const, text: accumulated }],
-                        details: { taskId, from: card.name, to: targetCard.name, inputRequired: true },
-                      });
-                    }
-                    await client.sendFollowUp(taskId, `Continue with the task. Original request: ${params.task}`, { role: "ROLE_USER" });
-                  } catch (err) {
-                    console.error("[pipal-a2a] multi-turn error:", err);
-                  }
-                })();
-              }
-            }
-            if (event === "task_completed" || event === "task_failed") {
-              clearTimeout(timer);
-              unsub();
-              client.getTask(taskId).then(resolve).catch(reject);
-            }
-          });
-        });
+        // Use shared waitForTaskCompletion (handles streaming + multi-turn + abort)
+        const result = await waitForTaskCompletion(
+          client, taskId, 120_000, new AbortController().signal, onUpdate, card.name, targetCard.name
+        );
 
         if (result.status.state === "TASK_STATE_COMPLETED") {
           const resultText = result.artifacts?.[0]?.parts?.[0]?.text

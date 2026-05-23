@@ -8,8 +8,7 @@
  * Not in SDK — only SharedStateServer uses this directly.
  */
 
-import type { AgentCard, TaskState, PushNotificationConfig } from "../core/types.js";
-import type { StoredTask } from "./shared-state.js";
+import type { AgentCard, TaskState, PushNotificationConfig, StoredTask } from "../core/types.js";
 
 // node:sqlite is experimental in Node v22 — clear error if unavailable
 let DatabaseSync: any;

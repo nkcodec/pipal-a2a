@@ -15,6 +15,7 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { load as parseYaml } from "js-yaml";
 import type { RoutingStrategy } from "../sdk/index.js";
 import type { Task, AgentCard } from "../core/types.js";
 
@@ -45,8 +46,15 @@ export class SmartRouter implements RoutingStrategy {
     try {
       if (existsSync(this.configPath)) {
         const yaml = readFileSync(this.configPath, "utf-8");
-        this.config = this.parseYaml(yaml);
-        console.log("[SmartRouter] Loaded config/team.yaml");
+        const parsed = parseYaml(yaml) as TeamConfig;
+        // Validate structure
+        if (parsed?.team?.roles) {
+          this.config = parsed;
+          console.log("[SmartRouter] Loaded config/team.yaml");
+        } else {
+          console.warn("[SmartRouter] config/team.yaml missing team.roles — using tag-based routing");
+          this.config = null;
+        }
       } else {
         console.warn("[SmartRouter] No config/team.yaml — using pure tag-based routing");
         this.config = null;
@@ -55,75 +63,6 @@ export class SmartRouter implements RoutingStrategy {
       console.warn("[SmartRouter] Failed to load config/team.yaml:", err);
       this.config = null;
     }
-  }
-
-  /**
-   * Parse minimal YAML (no external deps — built-in parsing)
-   */
-  private parseYaml(yaml: string): TeamConfig {
-    const config: TeamConfig = { team: { roles: {} } };
-    const lines = yaml.split("\n");
-
-    let currentRole: string | null = null;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-
-      // Top-level "team:"
-      if (trimmed === "team:") continue;
-
-      // Role definition: "  backend:"
-      const roleIndent = line.match(/^(\s*)(\w+):/);
-      if (roleIndent && roleIndent[1].length === 2) {
-        currentRole = roleIndent[2];
-        if (!config.team.roles[currentRole]) {
-          config.team.roles[currentRole] = {
-            name: currentRole,
-            description: "",
-            skills: [],
-            escalatesTo: [],
-            handlesDirectly: [],
-          };
-        }
-        continue;
-      }
-
-      if (!currentRole) continue;
-
-      // Key: value or Key: [items]
-      const kvMatch = trimmed.match(/^(\w+):\s*(.*)$/);
-      if (!kvMatch) continue;
-
-      const [, key, rawVal] = kvMatch;
-      const val = rawVal.trim().replace(/,$/, "");
-
-      if (key === "description") {
-        config.team.roles[currentRole].description = val.replace(/['"]/g, "");
-      } else if (key === "escalatesTo") {
-        if (val.startsWith("[") && val.endsWith("]")) {
-          config.team.roles[currentRole].escalatesTo = this.parseArray(val);
-        }
-      } else if (key === "handlesDirectly") {
-        if (val.startsWith("[") && val.endsWith("]")) {
-          config.team.roles[currentRole].handlesDirectly = this.parseArray(val);
-        }
-      } else if (key === "skills") {
-        if (val.startsWith("[") && val.endsWith("]")) {
-          config.team.roles[currentRole].skills = this.parseArray(val);
-        }
-      }
-    }
-
-    return config;
-  }
-
-  private parseArray(val: string): string[] {
-    return val
-      .slice(1, -1)
-      .split(",")
-      .map((s) => s.trim().replace(/['"]/g, ""))
-      .filter(Boolean);
   }
 
   /**

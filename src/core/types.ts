@@ -338,3 +338,18 @@ export interface PushNotificationConfig {
     readonly credentials?: string;
   };
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Stored Task — extended Task with routing metadata
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * A task stored in the shared state, with routing metadata.
+ * Extends the base Task with from/to agent and skill hint.
+ */
+export interface StoredTask extends Task {
+  readonly fromAgent: string;
+  readonly toAgent: string | null;
+  readonly skillHint: string | null;
+  readonly taskDescription: string;
+}

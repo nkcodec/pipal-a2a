@@ -32,6 +32,9 @@ export {
   // Push notifications
   type PushNotificationConfig,
   
+  // Stored task (with routing metadata)
+  type StoredTask,
+  
   // Factory functions
   createPart,
   createMessage,

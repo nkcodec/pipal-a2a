@@ -14,7 +14,7 @@
  */
 
 import express, { type Request, type Response } from "express";
-import type { AgentCard, Task, TaskState, PushNotificationConfig } from "../core/types.js";
+import type { AgentCard, Task, TaskState, PushNotificationConfig, StoredTask } from "../core/types.js";
 import { createTask } from "../core/types.js";
 import {
   JsonRpcDispatcher,
@@ -24,21 +24,6 @@ import {
   JSONRPC_CODES,
 } from "./jsonrpc.js";
 import { StateStore } from "./state-store.js";
-
-// ─────────────────────────────────────────────────────────────────
-// Stored Task
-// ─────────────────────────────────────────────────────────────────
-
-export interface StoredTask extends Task {
-  readonly fromAgent: string;
-  readonly toAgent: string | null;
-  readonly skillHint: string | null;
-  readonly taskDescription: string;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// JSON-RPC Helpers
-// ─────────────────────────────────────────────────────────────────
 
 // Removed dead helper functions: errorResp, okResp, taskNotFound — never called
 
@@ -139,6 +124,7 @@ export class SharedStateServer {
     this.setupPushRoutes();
     this.setupRpcRoutes();
     this.setupSseRoutes();
+    this.setupHealthRoutes();
 
     // Periodic cleanup: prune completed tasks older than 1 hour
     this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
@@ -668,9 +654,10 @@ export class SharedStateServer {
         }
       }
     });
+  }
 
+  private setupHealthRoutes(): void {
     this.app.get("/health", (_req: Request, res: Response) => {
-      // Use COUNT queries instead of loading all rows
       const agentNames = this.store.listAgentNames();
       res.json({
         ok: true,
