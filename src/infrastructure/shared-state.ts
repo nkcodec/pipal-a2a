@@ -103,7 +103,7 @@ export class SharedStateServer {
   private server: ReturnType<typeof this.app.listen> | null = null;
   private agents = new Map<string, AgentCard>();
   private tasks = new Map<string, StoredTask>();
-  private sseClients = new Map<string, { res: Response; heartbeat: ReturnType<typeof setInterval> }>();
+  private sseClients = new Map<string, { res: Response; heartbeat: ReturnType<typeof setInterval>; agentId?: string }>();
   private taskStreams = new Map<string, { res: Response; taskId: string; heartbeat: ReturnType<typeof setInterval> }>();
   private pushConfigs = new Map<string, PushNotificationConfig>(); // configId → config
   private taskLocks = new Map<string, Promise<void>>(); // per-task mutex
@@ -418,7 +418,7 @@ export class SharedStateServer {
           },
         };
         this.tasks.set(taskId, updated);
-        this.broadcast("task:failed", { taskId, error: "Task was cancelled" });
+        this.broadcast("task:failed", { taskId, error: "Task was cancelled", from: updated.fromAgent, to: updated.toAgent });
         return { task: updated };
       });
     });
@@ -473,15 +473,15 @@ export class SharedStateServer {
         });
 
         if (finalState === "TASK_STATE_COMPLETED") {
-          this.broadcast("task:completed", { taskId: updated.id, result });
+          this.broadcast("task:completed", { taskId: updated.id, result, from: updated.fromAgent, to: updated.toAgent });
           this.broadcastToTask(taskId, "task_completed", { result });
         this.firePushWebhook(taskId, finalState, result);
       } else if (finalState === "TASK_STATE_FAILED") {
-        this.broadcast("task:failed", { taskId: updated.id, error });
+        this.broadcast("task:failed", { taskId: updated.id, error, from: updated.fromAgent, to: updated.toAgent });
         this.broadcastToTask(taskId, "task_failed", { error });
         this.firePushWebhook(taskId, finalState, error);
       } else if (finalState === "TASK_STATE_CANCELED") {
-        this.broadcast("task:failed", { taskId: updated.id, error: "Task was cancelled" });
+        this.broadcast("task:failed", { taskId: updated.id, error: "Task was cancelled", from: updated.fromAgent, to: updated.toAgent });
         this.broadcastToTask(taskId, "task_failed", { error: "Task was cancelled" });
       }
 
@@ -565,7 +565,7 @@ export class SharedStateServer {
         status: updated.status,
         historyLength: history.length,
       });
-      this.broadcast("task:message", { taskId, from: role, message });
+      this.broadcast("task:message", { taskId, from: role, message, to: updated.toAgent });
 
         console.log(`[SharedState] Task ${taskId.slice(0, 8)} +message (${role}): "${message.slice(0, 40)}..."`);
         return { task: updated };
@@ -603,6 +603,7 @@ export class SharedStateServer {
   private setupSseRoutes(): void {
     this.app.get("/events", this.authMiddleware, (req: Request, res: Response) => {
       const clientId = (req.query.clientId as string) || crypto.randomUUID();
+      const agentId = req.query.agentId as string | undefined;
 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
@@ -610,7 +611,7 @@ export class SharedStateServer {
       res.setHeader("X-Accel-Buffering", "no");
 
       const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
-      this.sseClients.set(clientId, { res, heartbeat });
+      this.sseClients.set(clientId, { res, heartbeat, agentId });
 
       req.on("close", () => {
         clearInterval(heartbeat);
@@ -672,7 +673,13 @@ export class SharedStateServer {
 
   private broadcast(event: string, data: unknown): void {
     const payload = JSON.stringify(data);
+    const d = data as Record<string, unknown>;
     for (const [cid, client] of this.sseClients) {
+      // Scope task events: only send to relevant agents
+      if (event.startsWith("task:") && client.agentId) {
+        const isRelevant = d.from === client.agentId || d.to === client.agentId || !d.to;
+        if (!isRelevant) continue;
+      }
       try {
         client.res.write(`event: ${event}\ndata: ${payload}\n\n`);
       } catch {
@@ -704,10 +711,12 @@ export class SharedStateServer {
 
 export class SharedStateClient {
   private baseUrl: string;
+  private agentName: string;
 
-  constructor(baseUrl: string, apiKey?: string) {
+  constructor(baseUrl: string, apiKey?: string, agentName?: string) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     if (apiKey) this.apiKey = apiKey;
+    this.agentName = agentName ?? "unknown";
   }
 
   private apiKey?: string;
@@ -903,7 +912,7 @@ export class SharedStateClient {
     const connect = async () => {
       try {
         const response = await fetch(
-          `${this.baseUrl}/events?clientId=${crypto.randomUUID()}`,
+          `${this.baseUrl}/events?clientId=${crypto.randomUUID()}&agentId=${encodeURIComponent(this.agentName)}`,
           { headers: this._authHeaders(), signal: controller.signal }
         );
         if (!response.body) return;

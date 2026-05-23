@@ -584,7 +584,7 @@ export default function (pi: ExtensionAPI) {
     const sharedStateUrl = config.sharedState;
     const parsedPort = parseInt(new URL(sharedStateUrl).port || "5000");
 
-    client = new SharedStateClient(sharedStateUrl, config.apiKey);
+    client = new SharedStateClient(sharedStateUrl, config.apiKey, config.identity?.name);
     const isHost = !(await client.isReachable());
 
     if (isHost) {
