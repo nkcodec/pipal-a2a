@@ -923,17 +923,35 @@ export class SharedStateClient {
     return { Authorization: `Bearer ${this.apiKey}` };
   }
 
-  subscribe(handler: (event: string, data: unknown) => void): () => void {
-    const controller = new AbortController();
+  subscribe(
+    handler: (event: string, data: unknown) => void,
+    options?: { onReconnect?: () => Promise<void> },
+  ): () => void {
     let closed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    const MAX_BACKOFF = 30_000; // 30s max
 
     const connect = async () => {
+      if (closed) return;
+      const controller = new AbortController();
+
       try {
         const response = await fetch(
           `${this.baseUrl}/events?clientId=${crypto.randomUUID()}&agentId=${encodeURIComponent(this.agentName)}`,
           { headers: this._authHeaders(), signal: controller.signal }
         );
         if (!response.body) return;
+
+        // Connection established — reset backoff
+        const wasReconnect = attempt > 0;
+        attempt = 0;
+
+        // Notify caller of reconnect (for re-registration)
+        if (wasReconnect && options?.onReconnect) {
+          // Fire and forget — don't block SSE processing
+          options.onReconnect().catch(() => {});
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -962,18 +980,41 @@ export class SharedStateClient {
           }
         }
       } catch (error) {
-        if (!closed && !(error instanceof DOMException && error.name === "AbortError")) {
-          console.warn("[SharedStateClient] SSE connection closed:", error.message ?? error);
-        }
+        if (closed) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // Not an intentional close — reconnect
+      }
+
+      // Stream ended or errored — schedule reconnect with exponential backoff
+      if (!closed) {
+        attempt++;
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), MAX_BACKOFF);
+        const jitter = Math.random() * 500;
+        console.warn(
+          `[SharedStateClient] SSE disconnected. Reconnecting in ${Math.round((delay + jitter) / 1000)}s (attempt ${attempt})...`
+        );
+        reconnectTimer = setTimeout(async () => {
+          if (closed) return;
+          try {
+            // Check if server is back before reconnecting
+            const reachable = await this.isReachable();
+            if (!reachable) {
+              console.warn(`[SharedStateClient] Server not reachable, will retry...`);
+            }
+            // Reconnect SSE regardless — isReachable is best-effort
+            await connect();
+          } catch {
+            // connect() handles its own errors
+          }
+        }, delay + jitter);
       }
     };
 
-    connect().catch((err) => {
-      if (!closed) console.warn("[SharedStateClient] SSE connect failed:", err.message ?? err);
-    });
+    connect().catch(() => {});
+
     return () => {
       closed = true;
-      controller.abort();
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     };
   }
 

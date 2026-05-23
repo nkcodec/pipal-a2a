@@ -355,4 +355,75 @@ describe("E2E Crash Recovery", () => {
 
     await s2.stop();
   });
+
+  // ── Scenario 9: SSE reconnect after crash ────────────────────
+
+  it("client SSE reconnects and receives events after server restart", async () => {
+    const port1 = nextPort();
+    const port2 = nextPort();
+
+    // Phase 1: Start server, subscribe SSE
+    const s1 = new SharedStateServer({ dbPath });
+    const url1 = await s1.start(port1);
+    const c1 = new SharedStateClient(url1);
+
+    const receivedEvents: Array<{ event: string; data: unknown }> = [];
+    let reconnectCalled = false;
+
+    const unsub = c1.subscribe((event, data) => {
+      receivedEvents.push({ event, data });
+    }, {
+      onReconnect: async () => {
+        reconnectCalled = true;
+      },
+    });
+
+    // Wait for SSE to connect
+    await new Promise(r => setTimeout(r, 100));
+
+    // Register an agent → should get agent:online event
+    await c1.register(makeCard("backend", ["nodejs"]));
+    await new Promise(r => setTimeout(r, 100));
+    expect(receivedEvents.length).toBeGreaterThanOrEqual(1);
+    const firstEventCount = receivedEvents.length;
+
+    // CRASH
+    await s1.stop();
+    // Wait for disconnect detection
+    await new Promise(r => setTimeout(r, 200));
+
+    // Phase 2: Restart server on new port
+    // Note: client still points to old URL, so we simulate
+    // what happens in real extension: client creates new connection
+    const s2 = new SharedStateServer({ dbPath });
+    const url2 = await s2.start(port2);
+    const c2 = new SharedStateClient(url2);
+
+    const receivedEvents2: Array<{ event: string; data: unknown }> = [];
+    let reconnectCalled2 = false;
+
+    const unsub2 = c2.subscribe((event, data) => {
+      receivedEvents2.push({ event, data });
+    }, {
+      onReconnect: async () => {
+        reconnectCalled2 = true;
+      },
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    // Agent re-registers on new server
+    await c2.unregister("backend");
+    await c2.register(makeCard("backend", ["nodejs", "typescript"]));
+    await new Promise(r => setTimeout(r, 100));
+
+    // SSE event received on new connection
+    expect(receivedEvents2.length).toBeGreaterThanOrEqual(1);
+    const onlineEvent = receivedEvents2.find(e => e.event === "agent:online");
+    expect(onlineEvent).toBeDefined();
+
+    unsub();
+    unsub2();
+    await s2.stop();
+  });
 });

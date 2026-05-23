@@ -629,6 +629,23 @@ export default function (pi: ExtensionAPI) {
 
     unsubscribe = client.subscribe((event, data) => {
       handleSSEEvent(event, data);
+    }, {
+      onReconnect: async () => {
+        // Server came back — re-register this agent
+        try {
+          // Unregister first (clears stale entry from DB), then re-register
+          await client.unregister(card.name);
+        } catch {
+          // Not registered — that's fine (fresh start)
+        }
+        try {
+          await client.register(card);
+          registry.register(card);
+          console.log(`[pipal-a2a] 🔄 Re-registered after reconnect: ${card.name}`);
+        } catch (err: any) {
+          console.warn(`[pipal-a2a] Re-register failed: ${err.message}`);
+        }
+      },
     });
 
     const skillList = card.skills.length > 0
