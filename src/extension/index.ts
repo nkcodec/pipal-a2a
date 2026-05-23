@@ -121,6 +121,7 @@ function loadConfig(): ExtensionConfig {
           wing: "wing_a2a",
           sharedRoom: "shared",
         },
+        dbPath: loaded.dbPath,
       };
       configFileFound = true;
       break;
@@ -589,7 +590,7 @@ export default function (pi: ExtensionAPI) {
 
     if (isHost) {
       try {
-        server = new SharedStateServer();
+        server = new SharedStateServer({ dbPath: config.dbPath });
         await server.start(parsedPort, config.host);
         if (config.apiKey) {
           server.addApiKey(config.apiKey);

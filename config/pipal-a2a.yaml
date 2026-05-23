@@ -17,6 +17,11 @@ sharedState: http://localhost:5000
 # "0.0.0.0"   — all interfaces (multi-machine, requires apiKey!)
 # host: "127.0.0.1"
 
+# SQLite database path (crash-safe persistence)
+# Default: .pipal-a2a/state.db
+# Use ":memory:" for testing only (data lost on restart)
+# dbPath: ".pipal-a2a/state.db"
+
 # apiKey moved to .env (PIPAL_API_KEY) — per-project, not in git
 role: planner
 
