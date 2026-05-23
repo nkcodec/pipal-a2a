@@ -6,6 +6,30 @@ Per karpathy-clean-code: Config activates, not defines. Core doesn't know about 
 
 ---
 
+## Architecture: Option D — LLM-Driven via promptGuidelines
+
+MemPalace is integrated purely through **prompt guidelines** injected into the planner's delegate tool. There is NO extension code that calls MemPalace — the LLM orchestrates all reads/writes.
+
+```
+Planner terminal (LLM)
+┌──────────────────────────────────────────────┐
+│  delegate tool → promptGuidelines include:    │
+│    "BEFORE: call mempalace_search(...)"        │
+│    "AFTER: call mempalace_add_drawer(...)"     │
+│                                                │
+│  The LLM sees these and calls MCP tools        │
+│  No pipal-a2a code calls MemPalace directly    │
+└──────────────────────────────────────────────┘
+```
+
+**Why this approach:**
+- Zero coupling — pipal-a2a code never imports MemPalace
+- LLM decides when/if to call (smarter than hardcoded hooks)
+- If MemPalace is offline → LLM reports failure to user
+- Config activates (enable/disable) not defines (no code paths)
+
+---
+
 ## Enable MemPalace
 
 ```yaml
@@ -20,10 +44,10 @@ mempalace:
 
 ```bash
 # Install MemPalace MCP server
-pip install mempalace
+npm install -g mempalace-mcp
 
-# Initialize a palace
-mempalace init --palace ~/.mempalace/palace
+# Start MemPalace MCP
+mempalace-mcp --palace ~/.mempalace/palace
 
 # Add to pi's MCP config (~/.pi/agent/mcp.json)
 {
@@ -50,42 +74,44 @@ wing_my_project/
 └── diary/               ← ALL agents write (timestamped)
 ```
 
-## How It Works
+## Prompt Guidelines (what the planner sees)
 
-Planner sees `promptGuidelines` in the delegate tool — these remind the planner to call MemPalace before/after delegation. Agents never see MemPalace reminders.
+When MemPalace is enabled, the delegate tool injects these guidelines:
 
-### Before Delegation
-Planner searches MemPalace for prior work:
+### Before Delegation (2 calls)
 ```
-mempalace_search({ query: "todo-app", wing: "wing_my_project", room: "shared" })
-mempalace_kg_query({ entity: "todo-app" })
+[MemPalace] BEFORE delegating: call mempalace_search({ query: <project>, wing: "<wing>", room: "shared" }) to check for prior work.
+[MemPalace] BEFORE delegating: call mempalace_kg_query({ entity: <project> }) to find known facts about the project.
 ```
 
-### After Delegation
-Planner calls 3 tools to record completion:
+### After Delegation (3 calls)
 ```
-mempalace_add_drawer({ wing: "wing_my_project", room: "shared", content: "..." })
-mempalace_kg_add({ subject: "todo-app", predicate: "has_backend", object: "completed" })
-mempalace_diary_write({ agent_name: "planner", entry: "PROJ:todo-app|TASK:...|AGENT:backend|★★★★", wing: "wing_my_project" })
+[MemPalace] AFTER delegation completes: call mempalace_add_drawer({ wing: "<wing>", room: "shared", content: <status> }) to update shared/project-status.
+[MemPalace] AFTER delegation completes: call mempalace_kg_add({ subject: <project>, predicate: "has_<role>", object: "completed" }) to record completion.
+[MemPalace] AFTER delegation completes: call mempalace_diary_write({ agent_name: "planner", entry: "PROJ:<project>|TASK:<task>|AGENT:<role>|★★★★", wing: "<wing>" }) to log the decision.
 ```
+
+**Total: 5 MCP calls per delegation** (2 before + 3 after).
+
+## What Gets Stored
+
+| Drawer | Who writes | What |
+|--------|-----------|------|
+| `project-status` | Planner (via LLM) | Delegation results and status |
+| `roadmap` | Planner (via LLM) | Planning docs |
+| `decisions` | Planner (via LLM) | Key decisions (append only) |
+| `ownership-map` | Planner (via LLM) | Who owns what |
+| `diary` | Planner (via LLM) | Timestamped entries |
+
+**Important:** Write ONLY to `shared/` room. Per-agent rooms are scratch only.
 
 ## Config Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `enabled` | `false` | Enable/disable MemPalace integration |
-| `wing` | `"wing_a2a"` | Wing name for your project |
+| `wing` | `"wing_pipal_a2a"` | Wing name for your project |
 | `sharedRoom` | `"shared"` | Room for cross-agent docs |
-
-## What Gets Stored
-
-| Drawer | Who writes | What |
-|--------|-----------|------|
-| `project-status` | Each agent | Own section only |
-| `roadmap` | Planner | Planning docs |
-| `decisions` | All agents | Append-only decisions |
-| `ownership-map` | Planner | Who owns what |
-| `diary` | All agents | Timestamped entries |
 
 ## Custom Wing Per Project
 
@@ -110,7 +136,17 @@ Remove or comment out the section:
 ```yaml
 # mempalace:
 #   enabled: true
-#   wing: "wing_a2a"
+#   wing: "wing_pipal_a2a"
 ```
 
-Or set `enabled: false`. No reminders, no tool calls, no MemPalace dependency.
+Or set `enabled: false`. No guidelines injected, no MCP calls expected, no MemPalace dependency.
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| LLM doesn't call MemPalace | Check `mempalace.enabled: true` in config |
+| MemPalace MCP not found | Run `npm install -g mempalace-mcp` |
+| Wing/room not found | MemPalace auto-creates wings and rooms on first write |
+| LLM calls wrong tools | Check prompt guidelines in delegate tool output |
+| MemPalace timeout | LLM will report `MEMPALACE FAILED` — check MCP server is running |

@@ -64,6 +64,7 @@ pipal_a2a_delegate({ task: "build todo-app" })
 - **Working directory** — agents work in specified directory
 - **Graceful skip** — if an agent is offline, step is skipped with warning
 - **MemPalace** — each step gets MemPalace reminder (if enabled)
+- **Crash recovery** — if server restarts mid-workflow, agents reconnect and continue
 
 ## Example Output
 
