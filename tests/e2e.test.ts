@@ -32,7 +32,7 @@ let cardB: AgentCard;
 
 beforeAll(async () => {
   // Start shared state server (simulating HOST mode — first terminal)
-  server = new SharedStateServer();
+  server = new SharedStateServer({ dbPath: ":memory:" });
   const baseUrl = await server.start(PORT);
 
   // Terminal A: planner (HOST)

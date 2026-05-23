@@ -32,7 +32,7 @@ let backendCard: AgentCard;
 let frontendCard: AgentCard;
 
 beforeAll(async () => {
-  server = new SharedStateServer();
+  server = new SharedStateServer({ dbPath: ":memory:" });
   const baseUrl = await server.start(PORT);
 
   // Planner agent

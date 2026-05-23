@@ -23,6 +23,7 @@ import {
   type JsonRpcError,
   JSONRPC_CODES,
 } from "./jsonrpc.js";
+import { StateStore } from "./state-store.js";
 
 // ─────────────────────────────────────────────────────────────────
 // Stored Task
@@ -101,14 +102,19 @@ function isValidWebhookUrl(url: string, allowLocalhost: boolean = false): boolea
 export class SharedStateServer {
   private app = express();
   private server: ReturnType<typeof this.app.listen> | null = null;
-  private agents = new Map<string, AgentCard>();
-  private tasks = new Map<string, StoredTask>();
+  private store: StateStore;
   private sseClients = new Map<string, { res: Response; heartbeat: ReturnType<typeof setInterval>; agentId?: string }>();
   private taskStreams = new Map<string, { res: Response; taskId: string; heartbeat: ReturnType<typeof setInterval> }>();
-  private pushConfigs = new Map<string, PushNotificationConfig>(); // configId → config
   private taskLocks = new Map<string, Promise<void>>(); // per-task mutex
   private allowLocalhost: boolean = false;
   private validApiKeys = new Set<string>();
+
+  constructor(private readonly options: { dbPath?: string; apiKeys?: string[] } = {}) {
+    this.store = new StateStore(options.dbPath || ".pipal-a2a/state.db");
+    if (options.apiKeys) {
+      for (const key of options.apiKeys) this.validApiKeys.add(key);
+    }
+  }
 
   // JSON-RPC dispatcher for task methods
   private rpc = new JsonRpcDispatcher();
@@ -131,6 +137,16 @@ export class SharedStateServer {
 
   async start(port: number, host: string = "127.0.0.1"): Promise<string> {
     this.allowLocalhost = host === "127.0.0.1";
+
+    // Ensure DB directory exists
+    const dbPath = this.options.dbPath || ".pipal-a2a/state.db";
+    const dir = dbPath.includes("/") ? dbPath.substring(0, dbPath.lastIndexOf("/")) : null;
+    if (dir) {
+      const fs = await import("fs");
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    await this.store.init();
+
     this.app.use(express.json({ limit: '1mb' }));
     this.setupAgentRoutes();
     this.setupPushRoutes();
@@ -188,11 +204,11 @@ export class SharedStateServer {
 
     // Prune old terminal tasks
     let pruned = 0;
-    for (const [id, task] of this.tasks) {
+    for (const task of this.store.listTasks()) {
       if (terminalStates.has(task.status.state)) {
         const age = now - new Date(task.status.timestamp).getTime();
         if (age > TASK_TTL_MS) {
-          this.tasks.delete(id);
+          this.store.deleteTask(task.id);
           pruned++;
         }
       }
@@ -206,6 +222,7 @@ export class SharedStateServer {
     this.sseClients.clear();
     for (const { res } of this.taskStreams.values()) res.end();
     this.taskStreams.clear();
+    this.store.close();
     return new Promise((resolve, reject) => {
       this.server?.close((err) => (err ? reject(err) : resolve()));
     });
@@ -218,12 +235,12 @@ export class SharedStateServer {
     this.app.get("/.well-known/agent-card.json", (_req: Request, res: Response) => {
       res.setHeader("A2A-Version", "1.0");
       res.setHeader("Content-Type", "application/json");
-      const cards = Array.from(this.agents.values());
+      const cards = this.store.listAgents();
       res.json(cards);
     });
 
     this.app.get("/agents/:name", this.authMiddleware, (req: Request, res: Response) => {
-      const card = this.agents.get(req.params.name);
+      const card = this.store.getAgent(req.params.name);
       if (!card) return res.status(404).json({ error: "Agent not found" });
       res.setHeader("A2A-Version", "1.0");
       res.json(card);
@@ -231,7 +248,7 @@ export class SharedStateServer {
 
     this.app.get("/agents", this.authMiddleware, (_req: Request, res: Response) => {
       res.setHeader("A2A-Version", "1.0");
-      res.json(Array.from(this.agents.values()));
+      res.json(this.store.listAgents());
     });
 
     this.app.post("/register", this.authMiddleware, (req: Request, res: Response) => {
@@ -240,12 +257,12 @@ export class SharedStateServer {
         res.status(400).json({ error: "AgentCard requires name" });
         return;
       }
-      const existing = this.agents.get(card.name);
+      const existing = this.store.getAgent(card.name);
       if (existing) {
         res.status(409).json({ error: `Agent '${card.name}' already registered. Unregister first.` });
         return;
       }
-      this.agents.set(card.name, card);
+      this.store.setAgent(card);
       this.broadcast("agent:online", { agentId: card.name, card });
       console.log(`[SharedState] Agent registered: ${card.name}`);
       res.json({ ok: true, agentId: card.name });
@@ -254,7 +271,7 @@ export class SharedStateServer {
     this.app.post("/unregister", this.authMiddleware, (req: Request, res: Response) => {
       const { agentId } = req.body;
       if (agentId) {
-        this.agents.delete(agentId);
+        this.store.deleteAgent(agentId);
         this.broadcast("agent:offline", { agentId });
         console.log(`[SharedState] Agent left: ${agentId}`);
       }
@@ -277,7 +294,7 @@ export class SharedStateServer {
         return;
       }
       const id = crypto.randomUUID();
-      this.pushConfigs.set(id, config);
+      this.store.setPushConfig(id, config);
       console.log(`[Push] Config created: ${id} → ${config.url}`);
       res.setHeader("A2A-Version", "1.0");
       res.json({ id, ...config });
@@ -285,14 +302,14 @@ export class SharedStateServer {
 
     // List
     this.app.get("/push-configs", this.authMiddleware, (_req: Request, res: Response) => {
-      const configs = Array.from(this.pushConfigs.entries()).map(([id, c]) => ({ id, ...c }));
+      const configs = this.store.listPushConfigs().map(({ id, config }) => ({ id, ...config }));
       res.setHeader("A2A-Version", "1.0");
       res.json(configs);
     });
 
     // Get
     this.app.get("/push-configs/:id", this.authMiddleware, (req: Request, res: Response) => {
-      const config = this.pushConfigs.get(req.params.id);
+      const config = this.store.getPushConfig(req.params.id);
       if (!config) return res.status(404).json({ error: "Config not found" });
       res.setHeader("A2A-Version", "1.0");
       res.json({ id: req.params.id, ...config });
@@ -300,9 +317,10 @@ export class SharedStateServer {
 
     // Delete
     this.app.delete("/push-configs/:id", this.authMiddleware, (req: Request, res: Response) => {
-      const deleted = this.pushConfigs.delete(req.params.id);
+      const existed = this.store.getPushConfig(req.params.id);
+      if (existed) this.store.deletePushConfig(req.params.id);
       res.setHeader("A2A-Version", "1.0");
-      res.json({ ok: deleted });
+      res.json({ ok: !!existed });
     });
   }
 
@@ -311,7 +329,7 @@ export class SharedStateServer {
    * Called internally after task state changes.
    */
   private async firePushWebhook(taskId: string, state: string, result?: string): Promise<void> {
-    for (const [id, config] of this.pushConfigs.entries()) {
+    for (const { id, config } of this.store.listPushConfigs()) {
       // If config has taskId filter, only fire for matching tasks
       if (config.taskId && config.taskId !== taskId) continue;
       // SSRF guard — skip invalid URLs at fire time too
@@ -367,7 +385,7 @@ export class SharedStateServer {
         taskDescription: task,
       };
 
-      this.tasks.set(stored.id, stored);
+      this.store.setTask(stored);
       this.broadcast("task:created", {
         taskId: stored.id,
         from: stored.fromAgent,
@@ -388,7 +406,7 @@ export class SharedStateServer {
       const { taskId } = params as { taskId?: string };
       if (!taskId) throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required" };
 
-      const task = this.tasks.get(taskId);
+      const task = this.store.getTask(taskId);
       if (!task) return { task: null };
       return { task };
     });
@@ -399,7 +417,7 @@ export class SharedStateServer {
       if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
 
       return this.withTaskLock(taskId, async () => {
-        const task = this.tasks.get(taskId);
+        const task = this.store.getTask(taskId);
         if (!task) return { task: null };
         if (task.status.state === "TASK_STATE_COMPLETED") {
           return {
@@ -417,7 +435,7 @@ export class SharedStateServer {
             timestamp: new Date().toISOString(),
           },
         };
-        this.tasks.set(taskId, updated);
+        this.store.setTask(updated);
         this.broadcast("task:failed", { taskId, error: "Task was cancelled", from: updated.fromAgent, to: updated.toAgent });
         return { task: updated };
       });
@@ -434,7 +452,7 @@ export class SharedStateServer {
       if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
 
       return this.withTaskLock(taskId, async () => {
-        const task = this.tasks.get(taskId);
+        const task = this.store.getTask(taskId);
         if (!task) return { task: null };
 
         // State machine validation — reject transitions from terminal states
@@ -464,7 +482,7 @@ export class SharedStateServer {
           },
         };
 
-        this.tasks.set(taskId, updated);
+        this.store.setTask(updated);
 
         // Broadcast streaming events for task subscription
         this.broadcastToTask(taskId, "task_update", {
@@ -493,7 +511,7 @@ export class SharedStateServer {
     // tasks/listTasks — list tasks (optionally filtered by agent)
     this.rpc.register("tasks/listTasks", async (params) => {
       const { agentName } = params as { agentName?: string };
-      const all = Array.from(this.tasks.values());
+      const all = this.store.listTasks();
       if (agentName) {
         return { tasks: all.filter((t) => t.fromAgent === agentName || t.toAgent === agentName) };
       }
@@ -506,7 +524,7 @@ export class SharedStateServer {
       if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
       if (!chunk) return { ok: true }; // empty chunk, skip
 
-      const task = this.tasks.get(taskId);
+      const task = this.store.getTask(taskId);
       if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
 
       // Broadcast artifact_update SSE event to task subscribers
@@ -532,7 +550,7 @@ export class SharedStateServer {
       if (!message || typeof message !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "message is required and must be a string" };
 
       return this.withTaskLock(taskId, async () => {
-        const task = this.tasks.get(taskId);
+        const task = this.store.getTask(taskId);
         if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
 
         const msg = {
@@ -559,7 +577,7 @@ export class SharedStateServer {
         history,
         status: { state: newState, timestamp: new Date().toISOString() },
       };
-      this.tasks.set(taskId, updated);
+      this.store.setTask(updated);
 
       this.broadcastToTask(taskId, "task_update", {
         status: updated.status,
@@ -637,7 +655,7 @@ export class SharedStateServer {
       this.taskStreams.set(clientId, { res, taskId, heartbeat });
 
       // Send current task state immediately
-      const task = this.tasks.get(taskId);
+      const task = this.store.getTask(taskId);
       if (task) {
         res.write(`event: task_update\ndata: ${JSON.stringify({ taskId: task.id, status: task.status })}\n\n`);
       }
@@ -650,7 +668,7 @@ export class SharedStateServer {
       res.write(`event: connected\ndata: ${JSON.stringify({ clientId })}\n\n`);
 
       // Catch-up: if task is already terminal, send final event
-      const t2 = this.tasks.get(taskId);
+      const t2 = this.store.getTask(taskId);
       if (t2) {
         const s = t2.status.state;
         if (s === "TASK_STATE_COMPLETED") {
@@ -664,9 +682,9 @@ export class SharedStateServer {
     this.app.get("/health", (_req: Request, res: Response) => {
       res.json({
         ok: true,
-        agents: this.agents.size,
-        tasks: this.tasks.size,
-        agentNames: Array.from(this.agents.keys()),
+        agents: this.store.listAgents().length,
+        tasks: this.store.listTasks().length,
+        agentNames: this.store.listAgents().map(a => a.name),
       });
     });
   }

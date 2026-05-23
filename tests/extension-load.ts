@@ -22,7 +22,7 @@ async function main() {
     console.log("   ✅ Default export is a function");
 
     // ── Test 2: Shared state server starts ───────────────────────
-    server = new SharedStateServer();
+    server = new SharedStateServer({ dbPath: ":memory:" });
     const url = await server.start(19999);
     console.log("\n2. Server started at:", url);
 

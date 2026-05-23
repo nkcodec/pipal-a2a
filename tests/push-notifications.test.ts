@@ -16,7 +16,7 @@ let client: SharedStateClient;
 let baseUrl: string;
 
 beforeAll(async () => {
-  server = new SharedStateServer();
+  server = new SharedStateServer({ dbPath: ":memory:" });
   baseUrl = await server.start(PORT);
   client = new SharedStateClient(baseUrl);
 });

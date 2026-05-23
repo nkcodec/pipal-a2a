@@ -20,7 +20,7 @@ let baseUrl: string;
 const PORT = 18001;
 
 beforeAll(async () => {
-  server = new SharedStateServer();
+  server = new SharedStateServer({ dbPath: ":memory:" });
   baseUrl = await server.start(PORT);
   client = new SharedStateClient(baseUrl);
 });
@@ -252,7 +252,7 @@ describe("Auth — API Key", () => {
   let wrongKeyClient: SharedStateClient;
 
   beforeAll(async () => {
-    authServer = new SharedStateServer();
+    authServer = new SharedStateServer({ dbPath: ":memory:" });
     authUrl = await authServer.start(18003);
     authServer.addApiKey(AUTH_KEY);
     keyClient = new SharedStateClient(authUrl, AUTH_KEY);
@@ -313,7 +313,7 @@ describe("Well-known discovery (v0.1.5)", () => {
   let discoveryUrl: string;
 
   beforeAll(async () => {
-    discoveryServer = new SharedStateServer();
+    discoveryServer = new SharedStateServer({ dbPath: ":memory:" });
     discoveryUrl = await discoveryServer.start(DISCOVERY_PORT);
   });
 

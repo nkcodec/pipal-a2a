@@ -16,7 +16,7 @@ async function main() {
 
   try {
     // Start shared state
-    server = new SharedStateServer();
+    server = new SharedStateServer({ dbPath: ":memory:" });
     const url = await server.start(PORT);
 
     // Set up mock pi
