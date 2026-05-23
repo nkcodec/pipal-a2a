@@ -103,14 +103,30 @@ export class SharedStateServer {
   private server: ReturnType<typeof this.app.listen> | null = null;
   private agents = new Map<string, AgentCard>();
   private tasks = new Map<string, StoredTask>();
-  private sseClients = new Map<string, Response>();
-  private taskStreams = new Map<string, { res: Response; taskId: string }>();
+  private sseClients = new Map<string, { res: Response; heartbeat: ReturnType<typeof setInterval> }>();
+  private taskStreams = new Map<string, { res: Response; taskId: string; heartbeat: ReturnType<typeof setInterval> }>();
   private pushConfigs = new Map<string, PushNotificationConfig>(); // configId → config
+  private taskLocks = new Map<string, Promise<void>>(); // per-task mutex
   private allowLocalhost: boolean = false;
   private validApiKeys = new Set<string>();
 
   // JSON-RPC dispatcher for task methods
   private rpc = new JsonRpcDispatcher();
+
+  // Per-task mutex — prevents concurrent state mutations
+  private async withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.taskLocks.get(taskId) ?? Promise.resolve();
+    let release: () => void;
+    const next = new Promise<void>(resolve => { release = resolve; });
+    this.taskLocks.set(taskId, next);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release!();
+      if (this.taskLocks.get(taskId) === next) this.taskLocks.delete(taskId);
+    }
+  }
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   async start(port: number, host: string = "127.0.0.1"): Promise<string> {
@@ -222,6 +238,11 @@ export class SharedStateServer {
       const card = req.body as AgentCard;
       if (!card?.name) {
         res.status(400).json({ error: "AgentCard requires name" });
+        return;
+      }
+      const existing = this.agents.get(card.name);
+      if (existing) {
+        res.status(409).json({ error: `Agent '${card.name}' already registered. Unregister first.` });
         return;
       }
       this.agents.set(card.name, card);
@@ -377,27 +398,29 @@ export class SharedStateServer {
       const { taskId } = params as { taskId?: string };
       if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
 
-      const task = this.tasks.get(taskId);
-      if (!task) return { task: null };
-      if (task.status.state === "TASK_STATE_COMPLETED") {
-        return {
-          error: {
-            code: JSONRPC_CODES.TASK_NOT_CANCELABLE,
-            message: `Task '${taskId}' is already completed`,
+      return this.withTaskLock(taskId, async () => {
+        const task = this.tasks.get(taskId);
+        if (!task) return { task: null };
+        if (task.status.state === "TASK_STATE_COMPLETED") {
+          return {
+            error: {
+              code: JSONRPC_CODES.TASK_NOT_CANCELABLE,
+              message: `Task '${taskId}' is already completed`,
+            },
+          };
+        }
+
+        const updated: StoredTask = {
+          ...task,
+          status: {
+            state: "TASK_STATE_CANCELED",
+            timestamp: new Date().toISOString(),
           },
         };
-      }
-
-      const updated: StoredTask = {
-        ...task,
-        status: {
-          state: "TASK_STATE_CANCELED",
-          timestamp: new Date().toISOString(),
-        },
-      };
-      this.tasks.set(taskId, updated);
-      this.broadcast("task:failed", { taskId, error: "Task was cancelled" });
-      return { task: updated };
+        this.tasks.set(taskId, updated);
+        this.broadcast("task:failed", { taskId, error: "Task was cancelled" });
+        return { task: updated };
+      });
     });
 
     // tasks/resolveTask — post a result (called by completing agent)
@@ -410,47 +433,48 @@ export class SharedStateServer {
       };
       if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
 
-      const task = this.tasks.get(taskId);
-      if (!task) return { task: null };
+      return this.withTaskLock(taskId, async () => {
+        const task = this.tasks.get(taskId);
+        if (!task) return { task: null };
 
-      // State machine validation — reject transitions from terminal states
-      const terminalStates = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"]);
-      if (terminalStates.has(task.status.state)) {
-        throw { code: JSONRPC_CODES.TASK_NOT_CANCELABLE, message: `Task '${taskId}' is already in terminal state: ${task.status.state}` };
-      }
+        // State machine validation — reject transitions from terminal states
+        const terminalStates = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"]);
+        if (terminalStates.has(task.status.state)) {
+          throw { code: JSONRPC_CODES.TASK_NOT_CANCELABLE, message: `Task '${taskId}' is already in terminal state: ${task.status.state}` };
+        }
 
-      const finalState = state ?? "TASK_STATE_COMPLETED";
-      const updated: StoredTask = {
-        ...task,
-        status: {
-          state: finalState,
-          timestamp: new Date().toISOString(),
-        },
-        artifacts: result
-          ? [
-              {
-                artifactId: crypto.randomUUID(),
-                parts: [{ text: String(result), mediaType: "text/plain" }],
-              },
-            ]
-          : undefined,
-        metadata: {
-          ...task.metadata,
-          error,
-        },
-      };
+        const finalState = state ?? "TASK_STATE_COMPLETED";
+        const updated: StoredTask = {
+          ...task,
+          status: {
+            state: finalState,
+            timestamp: new Date().toISOString(),
+          },
+          artifacts: result
+            ? [
+                {
+                  artifactId: crypto.randomUUID(),
+                  parts: [{ text: String(result), mediaType: "text/plain" }],
+                },
+              ]
+            : undefined,
+          metadata: {
+            ...task.metadata,
+            error,
+          },
+        };
 
-      this.tasks.set(taskId, updated);
+        this.tasks.set(taskId, updated);
 
-      // Broadcast streaming events for task subscription
-      this.broadcastToTask(taskId, "task_update", {
-        status: updated.status,
-        artifacts: updated.artifacts,
-      });
+        // Broadcast streaming events for task subscription
+        this.broadcastToTask(taskId, "task_update", {
+          status: updated.status,
+          artifacts: updated.artifacts,
+        });
 
-      if (finalState === "TASK_STATE_COMPLETED") {
-        this.broadcast("task:completed", { taskId: updated.id, result });
-        this.broadcastToTask(taskId, "task_completed", { result });
+        if (finalState === "TASK_STATE_COMPLETED") {
+          this.broadcast("task:completed", { taskId: updated.id, result });
+          this.broadcastToTask(taskId, "task_completed", { result });
         this.firePushWebhook(taskId, finalState, result);
       } else if (finalState === "TASK_STATE_FAILED") {
         this.broadcast("task:failed", { taskId: updated.id, error });
@@ -461,8 +485,9 @@ export class SharedStateServer {
         this.broadcastToTask(taskId, "task_failed", { error: "Task was cancelled" });
       }
 
-      console.log(`[SharedState] Task ${updated.id.slice(0, 8)} → ${finalState}`);
-      return { task: updated };
+        console.log(`[SharedState] Task ${updated.id.slice(0, 8)} → ${finalState}`);
+        return { task: updated };
+      });
     });
 
     // tasks/listTasks — list tasks (optionally filtered by agent)
@@ -506,22 +531,23 @@ export class SharedStateServer {
       if (!taskId || typeof taskId !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "taskId is required and must be a string" };
       if (!message || typeof message !== 'string') throw { code: JSONRPC_CODES.INVALID_PARAMS, message: "message is required and must be a string" };
 
-      const task = this.tasks.get(taskId);
-      if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
+      return this.withTaskLock(taskId, async () => {
+        const task = this.tasks.get(taskId);
+        if (!task) throw { code: JSONRPC_CODES.TASK_NOT_FOUND, message: `Task ${taskId} not found` };
 
-      const msg = {
-        role: role === "ROLE_AGENT" ? "ROLE_AGENT" as const : "ROLE_USER" as const,
-        parts: [{ text: message, mediaType: "text/plain" }],
-        messageId: crypto.randomUUID(),
-        taskId,
-        contextId: task.contextId,
-      };
+        const msg = {
+          role: role === "ROLE_AGENT" ? "ROLE_AGENT" as const : "ROLE_USER" as const,
+          parts: [{ text: message, mediaType: "text/plain" }],
+          messageId: crypto.randomUUID(),
+          taskId,
+          contextId: task.contextId,
+        };
 
-      const history = [...(task.history || []), msg];
-      // If agent asks for input → INPUT_REQUIRED. If user responds → back to WORKING.
-      let newState: TaskState;
-      if (requireInput) {
-        newState = "TASK_STATE_INPUT_REQUIRED";
+        const history = [...(task.history || []), msg];
+        // If agent asks for input → INPUT_REQUIRED. If user responds → back to WORKING.
+        let newState: TaskState;
+        if (requireInput) {
+          newState = "TASK_STATE_INPUT_REQUIRED";
       } else if (task.status.state === "TASK_STATE_INPUT_REQUIRED" && role === "ROLE_USER") {
         newState = "TASK_STATE_WORKING";
       } else {
@@ -541,8 +567,9 @@ export class SharedStateServer {
       });
       this.broadcast("task:message", { taskId, from: role, message });
 
-      console.log(`[SharedState] Task ${taskId.slice(0, 8)} +message (${role}): "${message.slice(0, 40)}..."`);
-      return { task: updated };
+        console.log(`[SharedState] Task ${taskId.slice(0, 8)} +message (${role}): "${message.slice(0, 40)}..."`);
+        return { task: updated };
+      });
     });
 
     // ── JSON-RPC POST /rpc endpoint ────────────────────────────────
@@ -583,7 +610,7 @@ export class SharedStateServer {
       res.setHeader("X-Accel-Buffering", "no");
 
       const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
-      this.sseClients.set(clientId, res);
+      this.sseClients.set(clientId, { res, heartbeat });
 
       req.on("close", () => {
         clearInterval(heartbeat);
@@ -606,7 +633,7 @@ export class SharedStateServer {
       res.setHeader("A2A-Version", "1.0");
 
       const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
-      this.taskStreams.set(clientId, { res, taskId });
+      this.taskStreams.set(clientId, { res, taskId, heartbeat });
 
       // Send current task state immediately
       const task = this.tasks.get(taskId);
@@ -645,10 +672,11 @@ export class SharedStateServer {
 
   private broadcast(event: string, data: unknown): void {
     const payload = JSON.stringify(data);
-    for (const [cid, res] of this.sseClients) {
+    for (const [cid, client] of this.sseClients) {
       try {
-        res.write(`event: ${event}\ndata: ${payload}\n\n`);
+        client.res.write(`event: ${event}\ndata: ${payload}\n\n`);
       } catch {
+        clearInterval(client.heartbeat);
         this.sseClients.delete(cid);
       }
     }
@@ -662,6 +690,7 @@ export class SharedStateServer {
         try {
           entry.res.write(`event: ${event}\ndata: ${payload}\n\n`);
         } catch {
+          clearInterval(entry.heartbeat);
           this.taskStreams.delete(cid);
         }
       }
