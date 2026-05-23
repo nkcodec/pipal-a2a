@@ -590,7 +590,9 @@ export default function (pi: ExtensionAPI) {
   let isolation: IsolationStrategy = new NoIsolation();
   if (config.isolation === "worktree") {
     try {
-      isolation = new WorktreeIsolation();
+      const wt = new WorktreeIsolation();
+      await wt.cleanupStale();  // Prune orphan worktrees from previous crashes
+      isolation = wt;
       console.log(`[pipal-a2a] 🔒 Worktree isolation enabled`);
     } catch (err) {
       console.warn(`[pipal-a2a] ⚠️  Worktree isolation failed: ${err}. Falling back to none.`);
@@ -603,7 +605,10 @@ export default function (pi: ExtensionAPI) {
     postResult: async (id, r) => {
       await client!.postResult(id, r);
       // Finalize worktree after result is posted
-      await isolation.finalize(card!.name);
+      const result = await isolation.finalize(card!.name);
+      if (!result.success) {
+        console.error(`[pipal-a2a] ⚠️  Worktree finalize failed: ${result.error}. Skipping cleanup to preserve work.`);
+      }
     },
     postError: (id, e) => client!.postError(id, e),
     streamChunk: (id, c) => client!.streamChunk(id, c),
@@ -701,8 +706,13 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     if (client && card) {
-      await isolation.finalize(card.name);
-      await isolation.cleanup(card.name);
+      const result = await isolation.finalize(card.name);
+      // Only cleanup if finalize succeeded — preserve worktree on failure
+      if (result.success) {
+        await isolation.cleanup(card.name);
+      } else {
+        console.warn(`[pipal-a2a] ⚠️  Finalize failed, worktree preserved for recovery.`);
+      }
       try { await client.unregister(card.name); } catch {}
     }
     if (server) { await server.stop(); server = null; }
@@ -848,6 +858,9 @@ export default function (pi: ExtensionAPI) {
       "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
       "If delegation returns incomplete results: delegate AGAIN with a clearer task — do NOT build it yourself.",
       "If no agent name known: omit to= and skill= — SmartRouter will pick the right agent by tag.",
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: <status> }) to update shared/project-status.",
+      "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
+      "[Worktree Isolation] After ALL delegated tasks complete: call pipal_a2a_merge({ branch: 'agent/<agentName>' }) for each agent to integrate their work. Then agents auto-cleanup.",
       ...mempalaceGuidelines,
     ],
     parameters: Type.Object({
@@ -1288,22 +1301,30 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
+      // Validate branch name (same rules as agent names)
+      const branch = params.branch;
+      if (!/^agent\/[a-zA-Z0-9_-]+$/.test(branch)) {
+        return {
+          content: [{ type: "text" as const, text: `Invalid branch name: ${branch}. Expected format: agent/<name> with alphanumeric/hyphen/underscore only.` }],
+        };
+      }
+
       try {
-        const { execSync } = require("child_process");
-        const out = execSync(`git merge ${params.branch} --no-edit`, {
+        const { execFileSync } = require("child_process");
+        const out = execFileSync("git", ["merge", branch, "--no-edit"], {
           cwd: process.cwd(),
           encoding: "utf-8",
           stdio: ["pipe", "pipe", "pipe"],
         }).trim();
-        console.log(`[pipal-a2a] 🔀 Merged ${params.branch}`);
+        console.log(`[pipal-a2a] 🔀 Merged ${branch}`);
         return {
-          content: [{ type: "text" as const, text: `Merged ${params.branch}\n${out}` }],
+          content: [{ type: "text" as const, text: `Merged ${branch}\n${out}` }],
         };
       } catch (error: any) {
-        const msg = error?.stdout || error?.message || String(error);
+        const msg = error?.stderr?.trim() || error?.message || String(error);
         return {
-          content: [{ type: "text" as const, text: `Merge conflict or error:\n${msg}` }],
-          details: { error: true, branch: params.branch },
+          content: [{ type: "text" as const, text: `Merge conflict or error:\n${msg}\n\nOptions:\n  1. Resolve manually: edit conflicting files, then git add + git commit\n  2. Accept agent changes: git checkout --theirs <file> && git add && git commit\n  3. Abort: git merge --abort` }],
+          details: { error: true, branch },
         };
       }
     },

@@ -18,8 +18,8 @@ export class NoIsolation implements IsolationStrategy {
     return this.cwd;
   }
 
-  async finalize(_agentName: string): Promise<void> {
-    // Nothing to finalize — agents work directly in cwd
+  async finalize(_agentName: string): Promise<{ success: boolean; error?: string }> {
+    return { success: true };
   }
 
   getWorkDir(_agentName: string): string {

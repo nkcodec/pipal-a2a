@@ -13,8 +13,8 @@ export interface IsolationStrategy {
   /** Prepare isolated workspace for an agent. Returns working directory. */
   prepare(agentName: string): Promise<string>;
 
-  /** Finalize after task completes (commit, etc). */
-  finalize(agentName: string): Promise<void>;
+  /** Finalize after task completes (commit, etc). Returns success status. */
+  finalize(agentName: string): Promise<{ success: boolean; error?: string }>;
 
   /** Get the working directory for an agent. */
   getWorkDir(agentName: string): string;
