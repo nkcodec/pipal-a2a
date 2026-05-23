@@ -591,7 +591,8 @@ export default function (pi: ExtensionAPI) {
   if (config.isolation === "worktree") {
     try {
       const wt = new WorktreeIsolation();
-      await wt.cleanupStale();  // Prune orphan worktrees from previous crashes
+      // cleanupStale is async but called in sync block — safe to fire-and-forget
+      wt.cleanupStale().catch((err) => console.warn(`[pipal-a2a] ⚠️  cleanupStale: ${err}`));
       isolation = wt;
       console.log(`[pipal-a2a] 🔒 Worktree isolation enabled`);
     } catch (err) {
