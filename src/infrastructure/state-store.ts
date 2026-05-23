@@ -96,6 +96,18 @@ export class StateStore {
     return rows.map(r => JSON.parse(r.card_json));
   }
 
+  listAgentNames(): string[] {
+    const stmt = this.db!.prepare("SELECT name FROM agents ORDER BY updated_at");
+    const rows = stmt.all() as { name: string }[];
+    return rows.map(r => r.name);
+  }
+
+  countTasks(): number {
+    const stmt = this.db!.prepare("SELECT COUNT(*) as cnt FROM tasks");
+    const row = stmt.get() as { cnt: number };
+    return row.cnt;
+  }
+
   // ── Task CRUD ────────────────────────────────────────────────
 
   getTask(id: string): StoredTask | undefined {

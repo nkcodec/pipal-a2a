@@ -683,11 +683,13 @@ export class SharedStateServer {
     });
 
     this.app.get("/health", (_req: Request, res: Response) => {
+      // Use COUNT queries instead of loading all rows
+      const agentNames = this.store.listAgentNames();
       res.json({
         ok: true,
-        agents: this.store.listAgents().length,
-        tasks: this.store.listTasks().length,
-        agentNames: this.store.listAgents().map(a => a.name),
+        agents: agentNames.length,
+        tasks: this.store.countTasks(),
+        agentNames,
       });
     });
   }
