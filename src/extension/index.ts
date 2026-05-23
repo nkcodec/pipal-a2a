@@ -33,6 +33,9 @@ import {
 import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
 import type { StoredTask } from "../core/types.js";
 import { ResponseCapture } from "./response-capture.js";
+import type { IsolationStrategy } from "../builtin/isolation/isolation.js";
+import { NoIsolation } from "../builtin/isolation/no-isolation.js";
+import { WorktreeIsolation } from "../builtin/isolation/worktree-isolation.js";
 import { InMemoryAgentRegistry } from "../application/registry.js";
 // DefaultTaskRouter removed — dead import (never used, SmartRouter handles routing directly)
 import { SmartRouter } from "../builtin/smart-router.js";
@@ -55,6 +58,7 @@ interface ExtensionConfig {
   };
   apiKey?: string;
   dbPath?: string;
+  isolation?: "none" | "worktree";  // Config activates, not defines. Default: none.
   // MemPalace — swappable memory/KB backend
   // Config activates, not defines. Core doesn't know about MemPalace specifics.
   mempalace?: {
@@ -125,6 +129,7 @@ function loadConfig(): ExtensionConfig {
           sharedRoom: "shared",
         },
         dbPath: loaded.dbPath,
+        isolation: loaded.isolation ?? "none",
       };
       configFileFound = true;
       break;
@@ -581,9 +586,25 @@ export default function (pi: ExtensionAPI) {
 
   const registry = new InMemoryAgentRegistry();
 
+  // Isolation strategy — config activates, not defines
+  let isolation: IsolationStrategy = new NoIsolation();
+  if (config.isolation === "worktree") {
+    try {
+      isolation = new WorktreeIsolation();
+      console.log(`[pipal-a2a] 🔒 Worktree isolation enabled`);
+    } catch (err) {
+      console.warn(`[pipal-a2a] ⚠️  Worktree isolation failed: ${err}. Falling back to none.`);
+      isolation = new NoIsolation();
+    }
+  }
+
   // Response capture — explicit state machine for LLM response → shared state
   const capture = new ResponseCapture({
-    postResult: (id, r) => client!.postResult(id, r),
+    postResult: async (id, r) => {
+      await client!.postResult(id, r);
+      // Finalize worktree after result is posted
+      await isolation.finalize(card!.name);
+    },
     postError: (id, e) => client!.postError(id, e),
     streamChunk: (id, c) => client!.streamChunk(id, c),
   });
@@ -680,6 +701,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     if (client && card) {
+      await isolation.finalize(card.name);
+      await isolation.cleanup(card.name);
       try { await client.unregister(card.name); } catch {}
     }
     if (server) { await server.stop(); server = null; }
@@ -773,9 +796,13 @@ export default function (pi: ExtensionAPI) {
     console.log(`[pipal-a2a] 📩 Delegated task from ${from}: "${String(description).slice(0, 60)}..."`);
     capture.start(taskId);
 
+    // Prepare isolated workspace
+    const workDir = await isolation.prepare(card!.name);
+
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
-      `Please complete this task using your tools. Your response will be sent back to ${from}.`;
+      `Please complete this task using your tools. Your response will be sent back to ${from}.` +
+      (workDir !== process.cwd() ? `\n\nWorking directory: ${workDir}` : "");
 
     try {
       pi.sendUserMessage(taskMessage);
@@ -1238,6 +1265,45 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text" as const, text: `Failed to ask follow-up: ${error}` }],
           details: { error: String(error) },
+        };
+      }
+    },
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Tool: pipal_a2a_merge (only useful with worktree isolation)
+  // ───────────────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "pipal_a2a_merge",
+    description:
+      "Merge an agent's worktree branch back to the current branch. " +
+      "Use after all agents complete their tasks. Only needed with worktree isolation.",
+    parameters: Type.Object({
+      branch: Type.String({ description: "Agent branch to merge (e.g. 'agent/backend')" }),
+    }),
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      if (!(isolation instanceof WorktreeIsolation)) {
+        return {
+          content: [{ type: "text" as const, text: "Merge only available with worktree isolation. Current: none." }],
+        };
+      }
+
+      try {
+        const { execSync } = require("child_process");
+        const out = execSync(`git merge ${params.branch} --no-edit`, {
+          cwd: process.cwd(),
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        console.log(`[pipal-a2a] 🔀 Merged ${params.branch}`);
+        return {
+          content: [{ type: "text" as const, text: `Merged ${params.branch}\n${out}` }],
+        };
+      } catch (error: any) {
+        const msg = error?.stdout || error?.message || String(error);
+        return {
+          content: [{ type: "text" as const, text: `Merge conflict or error:\n${msg}` }],
+          details: { error: true, branch: params.branch },
         };
       }
     },
