@@ -947,6 +947,17 @@ export default function (pi: ExtensionAPI) {
               details: { error: "not_found" },
             };
           }
+          // Fail fast: check if target agent has active SSE connection
+          const online = await client.isAgentOnline(params.to);
+          if (!online) {
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Agent "${params.to}" is offline (registered but not connected). Try again or delegate to a different agent.`,
+              }],
+              details: { error: "agent_offline" },
+            };
+          }
         }
 
         // Skill-based routing
