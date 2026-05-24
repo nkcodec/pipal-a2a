@@ -616,10 +616,16 @@ export default function (pi: ExtensionAPI) {
     postResult: async (id, r) => {
       const transformed = transformer.transform(r);
       await client!.postResult(id, transformed);
-      // Finalize worktree after result is posted
+      // Finalize worktree after result is posted — commits changes in isolated worktree
       const result = await isolation.finalize(card!.name);
       if (!result.success) {
         console.error(`[pipal-a2a] ⚠️  Worktree finalize failed: ${result.error}. Skipping cleanup to preserve work.`);
+      }
+      // Restore cwd back to main after finalize so agent is back in shared context
+      const mainDir = (isolation as any).cwd;
+      if (mainDir && process.cwd() !== mainDir) {
+        process.chdir(mainDir);
+        console.log(`[pipal-a2a] ↩ Restored cwd to ${mainDir}`);
       }
     },
     postError: (id, e) => client!.postError(id, e),
@@ -840,10 +846,16 @@ export default function (pi: ExtensionAPI) {
     // Prepare isolated workspace
     const workDir = await isolation.prepare(card!.name);
 
+    // Restore cwd after worktree operations (sandbox pattern)
+    const origCwd = process.cwd();
+    if (workDir !== origCwd) {
+      process.chdir(workDir);  // Agent works in isolated worktree directory
+    }
+
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
       `Please complete this task using your tools. Your response will be sent back to ${from}.` +
-      (workDir !== process.cwd() ? `\n\nWorking directory: ${workDir}` : "");
+      (workDir !== origCwd ? `\n\nWorking directory: ${workDir}` : "");
 
     try {
       pi.sendUserMessage(taskMessage);
@@ -851,6 +863,8 @@ export default function (pi: ExtensionAPI) {
       console.error(`[pipal-a2a] ❌ sendUserMessage FAILED:`, error);
       await client.postError(taskId, `Failed to inject task: ${error}`);
       capture.cancel();
+      // Restore cwd on error
+      if (workDir !== origCwd) process.chdir(origCwd);
     }
   }
 
