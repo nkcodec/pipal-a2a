@@ -706,11 +706,34 @@ export class SharedStateServer {
   private setupHealthRoutes(): void {
     this.app.get("/health", (_req: Request, res: Response) => {
       const agentNames = this.store.listAgentNames();
-      res.json({
-        ok: true,
+
+      // Deep check: verify SQLite is responsive
+      let dbOk = false;
+      try {
+        this.store.countTasks();  // lightweight query — proves DB is alive
+        dbOk = true;
+      } catch {}
+
+      // Count SSE connections (active agents with heartbeat)
+      const sseConnections = this.sseClients.size;
+      const taskStreams = this.taskStreams.size;
+
+      // Task breakdown by state
+      const taskBreakdown: Record<string, number> = {};
+      for (const task of this.store.listTasks()) {
+        const s = task.status.state;
+        taskBreakdown[s] = (taskBreakdown[s] || 0) + 1;
+      }
+
+      const ok = dbOk;
+      res.status(ok ? 200 : 503).json({
+        ok,
         agents: agentNames.length,
-        tasks: this.store.countTasks(),
         agentNames,
+        tasks: this.store.countTasks(),
+        taskBreakdown,
+        sse: { clients: sseConnections, taskStreams },
+        db: dbOk,
       });
     });
   }
