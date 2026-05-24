@@ -1,8 +1,9 @@
 /**
- * Tests for production hardening: stale agent cleanup + graceful shutdown
+ * Tests for production hardening: stale agent cleanup + graceful shutdown + task timeout
  *
  * P0-1: Stale agents pruned when SSE silent for > staleAgentMs
- * P0-2: Graceful shutdown unregisters agents (tested via unit test of cleanup logic)
+ * P0-2: Graceful shutdown unregisters agents
+ * P1-1: Zombie tasks timed out when stuck in non-terminal state for > taskTimeoutMs
  */
 
 import { describe, it, expect, afterEach } from "vitest";
@@ -129,6 +130,116 @@ describe("Graceful shutdown", () => {
 
     agents = await client.listAgents();
     expect(agents.length).toBe(0);
+
+    await server.stop();
+  });
+});
+
+// ── Task Timeout ─────────────────────────────────────────────────
+
+describe("Task timeout", () => {
+  it("transitions zombie tasks to FAILED after taskTimeoutMs", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "timeout-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({
+      dbPath: path.join(tmp, "state.db"),
+      taskTimeoutMs: 100,  // 100ms timeout
+    });
+    await server.start(port, "127.0.0.1");
+    const url = `http://127.0.0.1:${port}`;
+
+    const client = new SharedStateClient(url, undefined, "timeout-test");
+    await client.register(makeCard("timeout-test"));
+
+    // Create a task and manually age it by setting an old timestamp
+    const { createTask } = await import("../src/core/types.js");
+    const taskId = crypto.randomUUID();
+    const agedTask: any = {
+      ...createTask(taskId, "TASK_STATE_WORKING", { contextId: "test" }),
+      fromAgent: "timeout-test",
+      toAgent: "worker",
+      skillHint: null,
+      taskDescription: "zombie task",
+      // Override timestamp to be 200ms ago (> 100ms timeout)
+      status: { state: "TASK_STATE_WORKING", timestamp: new Date(Date.now() - 200).toISOString() },
+    };
+    server["store"].setTask(agedTask);
+
+    // Verify task exists in WORKING state
+    let task = server["store"].getTask(taskId);
+    expect(task?.status.state).toBe("TASK_STATE_WORKING");
+
+    // Trigger cleanup (it's private, but we can wait or call via internals)
+    // cleanup runs every 5min, so manually invoke it
+    server["cleanup"]();
+
+    // Task should now be FAILED
+    task = server["store"].getTask(taskId);
+    expect(task?.status.state).toBe("TASK_STATE_FAILED");
+
+    await server.stop();
+  });
+
+  it("does NOT timeout completed tasks", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "notimeout-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({
+      dbPath: path.join(tmp, "state.db"),
+      taskTimeoutMs: 100,
+    });
+    await server.start(port, "127.0.0.1");
+
+    const { createTask } = await import("../src/core/types.js");
+    const taskId = crypto.randomUUID();
+    const completedTask: any = {
+      ...createTask(taskId, "TASK_STATE_COMPLETED", { contextId: "test" }),
+      fromAgent: "timeout-test",
+      toAgent: "worker",
+      skillHint: null,
+      taskDescription: "completed task",
+      status: { state: "TASK_STATE_COMPLETED", timestamp: new Date(Date.now() - 600_000).toISOString() },
+    };
+    server["store"].setTask(completedTask);
+
+    server["cleanup"]();
+
+    const task = server["store"].getTask(taskId);
+    expect(task?.status.state).toBe("TASK_STATE_COMPLETED");
+
+    await server.stop();
+  });
+
+  it("does NOT timeout recently created tasks", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fresh-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({
+      dbPath: path.join(tmp, "state.db"),
+      taskTimeoutMs: 60_000,  // 60s timeout
+    });
+    await server.start(port, "127.0.0.1");
+
+    const { createTask } = await import("../src/core/types.js");
+    const taskId = crypto.randomUUID();
+    const freshTask: any = {
+      ...createTask(taskId, "TASK_STATE_WORKING", { contextId: "test" }),
+      fromAgent: "timeout-test",
+      toAgent: "worker",
+      skillHint: null,
+      taskDescription: "fresh task",
+      status: { state: "TASK_STATE_WORKING", timestamp: new Date().toISOString() },
+    };
+    server["store"].setTask(freshTask);
+
+    server["cleanup"]();
+
+    const task = server["store"].getTask(taskId);
+    expect(task?.status.state).toBe("TASK_STATE_WORKING");
 
     await server.stop();
   });
