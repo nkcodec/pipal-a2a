@@ -61,6 +61,7 @@ interface ExtensionConfig {
   dbPath?: string;
   isolation?: "none" | "worktree";  // Config activates, not defines. Default: none.
   responseFormat?: "raw" | "structured";  // Default: raw
+  staleAgentMs?: number;  // Default: 60000 (60s)
   // MemPalace — swappable memory/KB backend
   // Config activates, not defines. Core doesn't know about MemPalace specifics.
   mempalace?: {
@@ -133,6 +134,7 @@ function loadConfig(): ExtensionConfig {
         dbPath: loaded.dbPath,
         isolation: loaded.isolation ?? "none",
         responseFormat: loaded.responseFormat ?? "raw",
+        staleAgentMs: loaded.staleAgentMs ?? 60_000,
       };
       configFileFound = true;
       break;
@@ -634,7 +636,7 @@ export default function (pi: ExtensionAPI) {
 
     if (isHost) {
       try {
-        server = new SharedStateServer({ dbPath: config.dbPath });
+        server = new SharedStateServer({ dbPath: config.dbPath, staleAgentMs: config.staleAgentMs });
         await server.start(parsedPort, config.host);
         if (config.apiKey) {
           server.addApiKey(config.apiKey);
@@ -726,6 +728,25 @@ export default function (pi: ExtensionAPI) {
     if (server) { await server.stop(); server = null; }
     console.log("[pipal-a2a] Offline");
   });
+
+  // ───────────────────────────────────────────────────────────────
+  // Graceful shutdown (SIGTERM/SIGINT)
+  // Production: ensures SQLite closes, agents unregister, worktrees finalize.
+  // ───────────────────────────────────────────────────────────────
+  const shutdown = async (signal: string) => {
+    console.log(`\n[pipal-a2a] ${signal} received — shutting down gracefully`);
+    if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+    if (client && card) {
+      const result = await isolation.finalize(card.name);
+      if (result.success) await isolation.cleanup(card.name);
+      try { await client.unregister(card.name); } catch {}
+    }
+    if (server) { await server.stop(); server = null; }
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 
   // ───────────────────────────────────────────────────────────────
   // Capture LLM responses for delegated tasks

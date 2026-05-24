@@ -75,14 +75,18 @@ export class SharedStateServer {
   private app = express();
   private server: ReturnType<typeof this.app.listen> | null = null;
   private store: StateStore;
-  private sseClients = new Map<string, { res: Response; heartbeat: ReturnType<typeof setInterval>; agentId?: string }>();
+  private sseClients = new Map<string, { res: Response; heartbeat: ReturnType<typeof setInterval>; agentId?: string; lastSeen: number }>();
   private taskStreams = new Map<string, { res: Response; taskId: string; heartbeat: ReturnType<typeof setInterval> }>();
   private taskLocks = new Map<string, Promise<void>>(); // per-task mutex
   private allowLocalhost: boolean = false;
   private validApiKeys = new Set<string>();
 
-  constructor(private readonly options: { dbPath?: string; apiKeys?: string[] } = {}) {
+  /** Stale agent threshold (default 60s). Config activates. */
+  private readonly staleAgentMs: number;
+
+  constructor(private readonly options: { dbPath?: string; apiKeys?: string[]; staleAgentMs?: number } = {}) {
     this.store = new StateStore(options.dbPath || ".pipal-a2a/state.db");
+    this.staleAgentMs = options.staleAgentMs ?? 60_000;
     if (options.apiKeys) {
       for (const key of options.apiKeys) this.validApiKeys.add(key);
     }
@@ -187,6 +191,25 @@ export class SharedStateServer {
       }
     }
     if (pruned > 0) console.log(`[Cleanup] Pruned ${pruned} expired task(s)`);
+
+    // Prune stale agents — SSE clients silent for > staleAgentMs
+    let staleAgents = 0;
+    for (const [cid, client] of this.sseClients) {
+      if (client.agentId && now - client.lastSeen > this.staleAgentMs) {
+        const agentId = client.agentId;
+        clearInterval(client.heartbeat);
+        try { client.res.end(); } catch {}
+        this.sseClients.delete(cid);
+
+        // Unregister the stale agent from the store
+        try { this.store.deleteAgent(agentId); } catch {}
+        staleAgents++;
+        console.warn(`[Cleanup] 🧹 Pruned stale agent: ${agentId}`);
+      }
+    }
+    if (staleAgents > 0) {
+      this.broadcast("agent:offline", {});  // Notify remaining agents
+    }
   }
 
   async stop(): Promise<void> {
@@ -605,7 +628,7 @@ export class SharedStateServer {
       res.setHeader("X-Accel-Buffering", "no");
 
       const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
-      this.sseClients.set(clientId, { res, heartbeat, agentId });
+      this.sseClients.set(clientId, { res, heartbeat, agentId, lastSeen: Date.now() });
 
       req.on("close", () => {
         clearInterval(heartbeat);
@@ -679,6 +702,7 @@ export class SharedStateServer {
       }
       try {
         client.res.write(`event: ${event}\ndata: ${payload}\n\n`);
+        client.lastSeen = Date.now();
       } catch {
         clearInterval(client.heartbeat);
         this.sseClients.delete(cid);
