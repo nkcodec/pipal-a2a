@@ -244,3 +244,61 @@ describe("Task timeout", () => {
     await server.stop();
   });
 });
+
+// ── Health Endpoint Deep Check ───────────────────────────────────
+
+describe("Health endpoint deep check", () => {
+  it("returns ok:true with db, sse, and task breakdown", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "health-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({ dbPath: path.join(tmp, "state.db") });
+    await server.start(port, "127.0.0.1");
+    const url = `http://127.0.0.1:${port}`;
+
+    const client = new SharedStateClient(url, undefined, "health-test");
+    await client.register(makeCard("health-test"));
+
+    const res = await fetch(`${url}/health`);
+    expect(res.status).toBe(200);
+    const health = await res.json() as any;
+
+    expect(health.ok).toBe(true);
+    expect(health.db).toBe(true);
+    expect(health.agents).toBe(1);
+    expect(health.agentNames).toContain("health-test");
+    expect(typeof health.sse.clients).toBe("number");
+    expect(typeof health.sse.taskStreams).toBe("number");
+    expect(health.taskBreakdown).toBeDefined();
+
+    await server.stop();
+  });
+
+  it("reports task breakdown by state", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "health-tasks-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({ dbPath: path.join(tmp, "state.db") });
+    await server.start(port, "127.0.0.1");
+
+    const { createTask } = await import("../src/core/types.js");
+    const tasks = [
+      { ...createTask(crypto.randomUUID(), "TASK_STATE_WORKING", {}), fromAgent: "a", toAgent: null, skillHint: null, taskDescription: "w1" },
+      { ...createTask(crypto.randomUUID(), "TASK_STATE_WORKING", {}), fromAgent: "a", toAgent: null, skillHint: null, taskDescription: "w2" },
+      { ...createTask(crypto.randomUUID(), "TASK_STATE_COMPLETED", {}), fromAgent: "a", toAgent: null, skillHint: null, taskDescription: "c1" },
+    ];
+    for (const t of tasks) server["store"].setTask(t);
+
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    const health = await res.json() as any;
+
+    expect(health.ok).toBe(true);
+    expect(health.taskBreakdown.TASK_STATE_WORKING).toBe(2);
+    expect(health.taskBreakdown.TASK_STATE_COMPLETED).toBe(1);
+    expect(health.tasks).toBe(3);
+
+    await server.stop();
+  });
+});
