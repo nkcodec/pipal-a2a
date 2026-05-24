@@ -17,6 +17,11 @@ sharedState: http://localhost:5000
 #   "worktree"          — git worktree per agent, each on its own branch
 # isolation: none
 
+# Response format — how agent responses are formatted
+#   "raw"        (default) — free-form text
+#   "structured"          — normalized into ## Result / ## Changes / ## Notes
+# responseFormat: raw
+
 # Server bind address
 # "127.0.0.1" — localhost only (default, secure, single machine)
 # "0.0.0.0"   — all interfaces (multi-machine, requires apiKey!)

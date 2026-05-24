@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.3.2 shipped** — Full A2A spec compliance. SQLite crash recovery. 163 tests. Security hardened.
+> **v0.4.1 shipped** — Worktree isolation. Structured responses. 195 tests. Release-please CI.
 
 ---
 
@@ -27,6 +27,7 @@ v0.3.1  ← MemPalace integration ✅
 v0.3.2  ← Full A2A spec compliance + security audit ✅
 v0.3.2+ ← SQLite crash recovery + dead code cleanup + structural fixes ✅
 v0.4.0  ← Agent isolation via git worktrees ✅
+v0.4.1  ← Structured response transformer + release-please CI ✅
 ```
 
 ---
@@ -98,7 +99,7 @@ v0.4.0  ← Agent isolation via git worktrees ✅
 - Config: `mempalace.enabled`, `wing`, `sharedRoom`
 - OFF by default (config activates, not defines)
 
-**179 tests. 16 files. Real 3-agent E2E with crash recovery verified.**
+**195 tests. 18 files. Real 3-agent E2E with crash recovery verified.**
 
 ---
 
@@ -182,12 +183,11 @@ New isolation tests:
 
 ---
 
-## Future Ideas (post v0.3.2)
+## Future Ideas (post v0.4.1)
 
 | Idea | When to build |
 |------|--------------|
 | Agent heartbeat cleanup | When stale agents become a real problem |
-| Structured agent responses | When users ask for better formatting |
 | Auto-role assignment | When 5+ terminal teams become common |
 | gRPC binding | When 100+ agents needed |
 | pi-file-guard | When prompts can't prevent wrong writes |
@@ -255,4 +255,4 @@ Correct for 3-5 agents on localhost. True P2P mesh is YAGNI.
 7. ✅ **Secure** — localhost binding, SSRF protection, YAML RCE prevented
 8. ✅ **Zero config** — Works with defaults, configurable when needed
 9. ✅ **Crash-safe** — SQLite WAL mode, auto-reconnect, upsert re-registration
-10. ✅ **179 tests** — Core, infrastructure, extension, routing, isolation, E2E, crash recovery
+10. ✅ **195 tests** — Core, infrastructure, extension, routing, isolation, transformer, E2E, crash recovery
