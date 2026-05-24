@@ -160,7 +160,7 @@ PIPAL_API_KEY=your-secret-key
 ## Tests
 
 ```bash
-npm test        # 163 tests, 16 files
+npm test        # 195 tests, 18 files
 ```
 
 ## Architecture
@@ -179,9 +179,15 @@ src/
 │   └── jsonrpc.ts             # JSON-RPC 2.0 dispatcher
 ├── builtin/
 │   ├── smart-router.ts        # Tag + skill + keyword routing
-│   └── skill-matcher.ts       # Simple skill-based matching
+│   ├── skill-matcher.ts       # Simple skill-based matching
+│   └── isolation/             # Agent isolation strategies
+│       ├── isolation.ts       # IsolationStrategy interface
+│       ├── no-isolation.ts    # Default — agents share cwd
+│       └── worktree-isolation.ts  # Git worktree per agent
 ├── extension/
-│   └── index.ts               # Pi extension entry point (tools + lifecycle)
+│   ├── index.ts               # Pi extension entry point (tools + lifecycle)
+│   ├── response-capture.ts    # LLM response state machine
+│   └── response-transformer.ts # Structured response normalization
 └── cli/index.ts               # CLI commands
 ```
 
@@ -257,6 +263,30 @@ cleanup()  → git worktree remove (on disconnect)
 **Security:** Shell injection and path traversal blocked via `validateName()` (alphanumeric only) + `execFile()` (no shell).
 
 **Crash recovery:** Orphan worktrees pruned on startup via `cleanupStale()`. Finalize errors preserve worktree (no silent data loss).
+
+## Structured Responses
+
+Agents return consistent, scannable responses. Configurable via `responseFormat`.
+
+```yaml
+# config/pipal-a2a.yaml
+responseFormat: structured  # default: raw
+```
+
+**Structured response format:**
+```markdown
+## Result
+✅ Created user API endpoint with validation
+
+## Changes
+- `src/routes/user.ts` (created)
+- `src/models/user.ts` (modified)
+
+## Notes
+Added input validation for email and password fields.
+```
+
+Works via prompt convention + transformer normalization. Zero overhead.
 
 ## License
 
