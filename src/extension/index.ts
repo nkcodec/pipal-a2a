@@ -62,6 +62,7 @@ interface ExtensionConfig {
   isolation?: "none" | "worktree";  // Config activates, not defines. Default: none.
   responseFormat?: "raw" | "structured";  // Default: raw
   staleAgentMs?: number;  // Default: 60000 (60s)
+  taskTimeoutMs?: number;  // Default: 300000 (5min)
   // MemPalace — swappable memory/KB backend
   // Config activates, not defines. Core doesn't know about MemPalace specifics.
   mempalace?: {
@@ -135,6 +136,7 @@ function loadConfig(): ExtensionConfig {
         isolation: loaded.isolation ?? "none",
         responseFormat: loaded.responseFormat ?? "raw",
         staleAgentMs: loaded.staleAgentMs ?? 60_000,
+        taskTimeoutMs: loaded.taskTimeoutMs ?? 300_000,
       };
       configFileFound = true;
       break;
@@ -636,7 +638,7 @@ export default function (pi: ExtensionAPI) {
 
     if (isHost) {
       try {
-        server = new SharedStateServer({ dbPath: config.dbPath, staleAgentMs: config.staleAgentMs });
+        server = new SharedStateServer({ dbPath: config.dbPath, staleAgentMs: config.staleAgentMs, taskTimeoutMs: config.taskTimeoutMs });
         await server.start(parsedPort, config.host);
         if (config.apiKey) {
           server.addApiKey(config.apiKey);

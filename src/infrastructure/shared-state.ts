@@ -83,10 +83,13 @@ export class SharedStateServer {
 
   /** Stale agent threshold (default 60s). Config activates. */
   private readonly staleAgentMs: number;
+  /** Task timeout threshold (default 5min). Config activates. */
+  private readonly taskTimeoutMs: number;
 
-  constructor(private readonly options: { dbPath?: string; apiKeys?: string[]; staleAgentMs?: number } = {}) {
+  constructor(private readonly options: { dbPath?: string; apiKeys?: string[]; staleAgentMs?: number; taskTimeoutMs?: number } = {}) {
     this.store = new StateStore(options.dbPath || ".pipal-a2a/state.db");
     this.staleAgentMs = options.staleAgentMs ?? 60_000;
+    this.taskTimeoutMs = options.taskTimeoutMs ?? 300_000;
     if (options.apiKeys) {
       for (const key of options.apiKeys) this.validApiKeys.add(key);
     }
@@ -174,7 +177,8 @@ export class SharedStateServer {
    * Remove completed/failed/canceled tasks older than 1 hour.
    * Remove SSE clients whose connections have died.
    */
-  private cleanup(): void {
+  /** @internal Test hook — forces immediate cleanup cycle. */
+  cleanup(): void {
     const TASK_TTL_MS = 60 * 60 * 1000; // 1 hour
     const now = Date.now();
     const terminalStates = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"]);
@@ -210,6 +214,26 @@ export class SharedStateServer {
     if (staleAgents > 0) {
       this.broadcast("agent:offline", {});  // Notify remaining agents
     }
+
+    // Timeout zombie tasks — stuck in non-terminal state for > taskTimeoutMs
+    const activeStates = new Set(["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING", "TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED"]);
+    let timedOut = 0;
+    for (const task of this.store.listTasks()) {
+      if (activeStates.has(task.status.state)) {
+        const age = now - new Date(task.status.timestamp).getTime();
+        if (age > this.taskTimeoutMs) {
+          const updated: StoredTask = {
+            ...task,
+            status: { state: "TASK_STATE_FAILED", timestamp: new Date().toISOString() },
+          };
+          this.store.updateTaskState(task.id, "TASK_STATE_FAILED", JSON.stringify(updated));
+          this.broadcast("task:failed", { taskId: task.id, from: task.fromAgent, to: task.toAgent, reason: "timeout" });
+          timedOut++;
+          console.warn(`[Cleanup] ⏰ Timed out task: ${task.id} (was ${task.status.state}, ${Math.round(age / 1000)}s old)`);
+        }
+      }
+    }
+    if (timedOut > 0) console.log(`[Cleanup] Timed out ${timedOut} zombie task(s)`);
   }
 
   async stop(): Promise<void> {
