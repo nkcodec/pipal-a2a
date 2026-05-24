@@ -7,7 +7,10 @@
   "main": "src/cli/index.ts",
   "scripts": {
     "start": "node src/cli/index.ts serve",
-    "test": "vitest run"
+    "test": "vitest run",
+    "agents": "NODE_NO_WARNINGS=1 npx tsx src/cli/index.ts agents",
+    "health": "NODE_NO_WARNINGS=1 npx tsx src/cli/index.ts health",
+    "serve": "NODE_NO_WARNINGS=1 npx tsx src/cli/index.ts serve"
   },
   "pi": {
     "extensions": [
