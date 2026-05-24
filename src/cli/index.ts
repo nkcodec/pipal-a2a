@@ -13,7 +13,7 @@
  * the shared state server when it's the first terminal (HOST mode).
  */
 
-import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
+import { SharedStateServer } from "../infrastructure/shared-state.js";
 
 const [command, ...args] = process.argv.slice(2);
 const port = parseInt(args[0]) || 5000;
@@ -40,17 +40,28 @@ async function cmdServe(): Promise<void> {
 }
 
 async function cmdAgents(): Promise<void> {
-  const client = new SharedStateClient(sharedStateUrl);
   try {
-    const agents = await client.listAgents();
-    if (agents.length === 0) {
-      console.log("No agents online.");
+    const healthRes = await fetch(`${sharedStateUrl}/health`);
+    if (!healthRes.ok) {
+      console.log(`❌ Shared state not reachable at ${sharedStateUrl}`);
+      process.exit(1);
+    }
+    const h = await healthRes.json() as {
+      agents: number;
+      agentNames: string[];
+      sse: { connectedAgents: string[] };
+    };
+
+    if (h.agents === 0) {
+      console.log("No agents registered.");
       return;
     }
-    console.log(`\n📋 ${agents.length} agent(s) online:\n`);
-    for (const a of agents) {
-      const skills = a.skills.map((s) => s.id).join(", ") || "none";
-      console.log(`  ${a.name}: [${skills}]`);
+
+    console.log(`\n📋 ${h.agents} agent(s):\n`);
+    for (const name of h.agentNames) {
+      const connected = h.sse.connectedAgents.includes(name);
+      const status = connected ? "🟢 online" : "🔴 offline (no SSE)";
+      console.log(`  ${name} — ${status}`);
     }
     console.log();
   } catch {
@@ -60,17 +71,40 @@ async function cmdAgents(): Promise<void> {
 }
 
 async function cmdHealth(): Promise<void> {
-  const client = new SharedStateClient(sharedStateUrl);
   try {
-    const reachable = await client.isReachable();
-    if (reachable) {
-      const agents = await client.listAgents();
-      console.log(`✅ Shared state running at ${sharedStateUrl}`);
-      console.log(`   ${agents.length} agent(s) connected`);
-    } else {
-      console.log(`❌ Shared state not reachable at ${sharedStateUrl}`);
+    const res = await fetch(`${sharedStateUrl}/health`);
+    if (!res.ok) {
+      console.log(`❌ Shared state not reachable at ${sharedStateUrl} (HTTP ${res.status})`);
       process.exit(1);
     }
+    const h = await res.json() as {
+      ok: boolean;
+      agents: number;
+      agentNames: string[];
+      tasks: number;
+      taskBreakdown: Record<string, number>;
+      sse: { clients: number; taskStreams: number; connectedAgents: string[] };
+      db: boolean;
+    };
+
+    console.log(`\n✅ PiPal-A2A Shared State — ${sharedStateUrl}\n`);
+    console.log(`  DB:     ${h.db ? "🟢 ok" : "🔴 unreachable"}`);
+    console.log(`  Agents: ${h.agents} registered, ${h.sse.connectedAgents.length} connected`);
+    if (h.agentNames.length > 0) {
+      for (const name of h.agentNames) {
+        const connected = h.sse.connectedAgents.includes(name);
+        console.log(`    ${connected ? "🟢" : "🔴"} ${name}`);
+      }
+    }
+    console.log(`  Tasks:  ${h.tasks}`);
+    if (Object.keys(h.taskBreakdown).length > 0) {
+      for (const [state, count] of Object.entries(h.taskBreakdown)) {
+        const label = state.replace("TASK_STATE_", "");
+        console.log(`    ${label}: ${count}`);
+      }
+    }
+    console.log(`  SSE:    ${h.sse.clients} clients, ${h.sse.taskStreams} task streams`);
+    console.log();
   } catch {
     console.log(`❌ Shared state not reachable at ${sharedStateUrl}`);
     process.exit(1);
