@@ -302,3 +302,77 @@ describe("Health endpoint deep check", () => {
     await server.stop();
   });
 });
+
+// ── Offline Agent Rejection ─────────────────────────────────────
+
+describe("Offline agent rejection", () => {
+  it("rejects task when target agent has no active SSE", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "offline-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({ dbPath: path.join(tmp, "state.db") });
+    await server.start(port, "127.0.0.1");
+    const url = `http://127.0.0.1:${port}`;
+
+    // Register agent (adds to store) but do NOT subscribe — no SSE connection
+    const client = new SharedStateClient(url, undefined, "offline-test");
+    await client.register(makeCard("ghost-agent"));
+
+    // No SSE — ghost-agent is registered but offline
+    // Verify health endpoint reports agent as NOT connected
+    const healthRes = await fetch(`${url}/health`);
+    const health = await healthRes.json() as any;
+    expect(health.sse.connectedAgents).not.toContain("ghost-agent");
+
+    // Verify isAgentOnline returns false
+    const isOnline = await client.isAgentOnline("ghost-agent");
+    expect(isOnline).toBe(false);
+
+    // Task creation still works (server doesn't block)
+    const res = await fetch(`${url}/rpc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tasks/sendMessage",
+        params: { task: "do work", to: "ghost-agent" },
+        id: 1,
+      }),
+    });
+    const json = await res.json() as any;
+    expect(json.result).toBeDefined();
+    expect(json.result.task.status.state).toBe("TASK_STATE_SUBMITTED");
+
+    await server.stop();
+  });
+
+  it("allows task to broadcast (to=null) even with no SSE", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "broadcast-"));
+    tmpDirs.push(tmp);
+    const port = nextPort();
+
+    const server = new SharedStateServer({ dbPath: path.join(tmp, "state.db") });
+    await server.start(port, "127.0.0.1");
+    const url = `http://127.0.0.1:${port}`;
+
+    // No agents connected — broadcast should still work
+    const res = await fetch(`${url}/rpc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tasks/sendMessage",
+        params: { task: "anyone available?" },
+        id: 1,
+      }),
+    });
+    const json = await res.json() as any;
+
+    expect(json.error).toBeUndefined();
+    expect(json.result).toBeDefined();
+    expect(server["store"].countTasks()).toBe(1);
+
+    await server.stop();
+  });
+});

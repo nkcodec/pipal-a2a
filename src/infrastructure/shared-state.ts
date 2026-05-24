@@ -718,6 +718,13 @@ export class SharedStateServer {
       const sseConnections = this.sseClients.size;
       const taskStreams = this.taskStreams.size;
 
+      // Agents with active SSE connections (truly "online")
+      const connectedAgents = [...new Set(
+        [...this.sseClients.values()]
+          .map(c => c.agentId)
+          .filter((id): id is string => !!id)
+      )];
+
       // Task breakdown by state
       const taskBreakdown: Record<string, number> = {};
       for (const task of this.store.listTasks()) {
@@ -732,7 +739,7 @@ export class SharedStateServer {
         agentNames,
         tasks: this.store.countTasks(),
         taskBreakdown,
-        sse: { clients: sseConnections, taskStreams },
+        sse: { clients: sseConnections, taskStreams, connectedAgents },
         db: dbOk,
       });
     });
@@ -795,6 +802,20 @@ export class SharedStateClient {
         signal: AbortSignal.timeout(3000),
       });
       return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Check if a specific agent has an active SSE connection (truly "online"). */
+  async isAgentOnline(agentName: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseUrl}/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!response.ok) return false;
+      const health = await response.json() as { sse?: { connectedAgents?: string[] } };
+      return health.sse?.connectedAgents?.includes(agentName) ?? false;
     } catch {
       return false;
     }
