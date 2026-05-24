@@ -33,6 +33,7 @@ import {
 import { SharedStateServer, SharedStateClient } from "../infrastructure/shared-state.js";
 import type { StoredTask } from "../core/types.js";
 import { ResponseCapture } from "./response-capture.js";
+import { createTransformer } from "./response-transformer.js";
 import type { IsolationStrategy } from "../builtin/isolation/isolation.js";
 import { NoIsolation } from "../builtin/isolation/no-isolation.js";
 import { WorktreeIsolation } from "../builtin/isolation/worktree-isolation.js";
@@ -59,6 +60,7 @@ interface ExtensionConfig {
   apiKey?: string;
   dbPath?: string;
   isolation?: "none" | "worktree";  // Config activates, not defines. Default: none.
+  responseFormat?: "raw" | "structured";  // Default: raw
   // MemPalace — swappable memory/KB backend
   // Config activates, not defines. Core doesn't know about MemPalace specifics.
   mempalace?: {
@@ -130,6 +132,7 @@ function loadConfig(): ExtensionConfig {
         },
         dbPath: loaded.dbPath,
         isolation: loaded.isolation ?? "none",
+        responseFormat: loaded.responseFormat ?? "raw",
       };
       configFileFound = true;
       break;
@@ -601,10 +604,14 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  // Response transformer — normalizes agent responses (config activates)
+  const transformer = createTransformer(config.responseFormat);
+
   // Response capture — explicit state machine for LLM response → shared state
   const capture = new ResponseCapture({
     postResult: async (id, r) => {
-      await client!.postResult(id, r);
+      const transformed = transformer.transform(r);
+      await client!.postResult(id, transformed);
       // Finalize worktree after result is posted
       const result = await isolation.finalize(card!.name);
       if (!result.success) {
@@ -862,6 +869,7 @@ export default function (pi: ExtensionAPI) {
       "[MemPalace] AFTER delegation completes: call mempalace_mempalace_add_drawer({ wing: \"wing_pipal_a2a\", room: \"shared\", content: <status> }) to update shared/project-status.",
       "[MemPalace] AFTER delegation completes: call mempalace_mempalace_kg_add({ subject: <project>, predicate: \"has_<role>\", object: \"completed\" }) to record completion.",
       "[Worktree Isolation] After ALL delegated tasks complete: call pipal_a2a_merge({ branch: 'agent/<agentName>' }) for each agent to integrate their work. Then agents auto-cleanup.",
+      "[Response Format] When completing a task, structure your response as: ## Result — one line with ✅/❌/⚠️ + summary. ## Changes — list of files created/modified/deleted with paths. ## Notes — (optional) any extra context.",
       ...mempalaceGuidelines,
     ],
     parameters: Type.Object({
