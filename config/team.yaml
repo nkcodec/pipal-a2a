@@ -12,7 +12,7 @@ team:
     roles:
         planner:
             description: Architecture, reasoning, multi-step planning, delegation.
-            skills: [planning, delegation]
+            capabilities: [planning, delegation]
             tags: [plan, architecture, design]
             skillGuidelines:
                 - "Follow karpathy-clean-code: ship smallest correct core, config activates not defines, no abstractions for single-use code."
@@ -24,7 +24,7 @@ team:
 
         backend:
             description: Implementation, code generation, API development.
-            skills: [code-generation, backend-implementation]
+            capabilities: [code-generation, backend-implementation]
             tags: [node.js, express, api, backend]
             skillGuidelines:
                 - "Follow karpathy-clean-code: core frozen, infrastructure implements, config activates."
@@ -34,7 +34,7 @@ team:
 
         frontend:
             description: UI implementation, styling, user-facing code.
-            skills: [frontend-implementation]
+            capabilities: [frontend-implementation]
             tags: [react, css, tailwind, ui]
             skillGuidelines:
                 - "Follow karpathy-clean-code: simplicity first, no speculative abstractions."
@@ -43,7 +43,7 @@ team:
 
         data:
             description: Data pipelines, analysis, embeddings, storage.
-            skills: [data-processing, embeddings]
+            capabilities: [data-processing, embeddings]
             tags: [data, chromadb, sqlite, kafka, spark, pandas]
             skillGuidelines:
                 - "Follow karpathy-clean-code: data models are core (frozen), pipelines are infrastructure."
@@ -51,7 +51,7 @@ team:
 
         security:
             description: Security audits, vulnerability scanning, hardening.
-            skills: [security-audit]
+            capabilities: [security-audit]
             tags: [security, audit, hardening]
             skillGuidelines:
                 - "Use scrutinize mindset: outsider perspective, trace actual code paths, cite specific lines."
@@ -60,7 +60,7 @@ team:
 
         reviewer:
             description: Code review, quality assurance, testing.
-            skills: [code-review]
+            capabilities: [code-review]
             tags: [review, testing, quality]
             skillGuidelines:
                 - "Use scrutinize workflow: intent then trace then verify then report."
