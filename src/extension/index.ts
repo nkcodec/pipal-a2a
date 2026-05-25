@@ -164,7 +164,7 @@ function loadConfig(): ExtensionConfig {
     const role = roles.get(config.role);
     if (role) {
       config.identity.name = role.name;
-      config.identity.skills = role.skills;
+      config.identity.skills = role.capabilities;
       config.identity.tags = role.tags || [];
       config.identity.description = role.description;
     } else {
@@ -544,9 +544,9 @@ function waitForTaskCompletion(
 interface TeamRole {
   name: string;
   description: string;
-  skills: string[];
+  capabilities: string[];  // Routing labels — what this role can do. NOT SKILL.md files.
   tags?: string[];
-  skillGuidelines?: string[];  // Karpathy: config activates. Per-role skill instructions.
+  skillGuidelines?: string[];  // Behavioral instructions injected into task messages.
 }
 
 function loadTeamRoles(): Map<string, TeamRole> {
@@ -567,7 +567,7 @@ function loadTeamRoles(): Map<string, TeamRole> {
           roles.set(key, {
             name: key,
             description: r.description || `Role: ${key}`,
-            skills: r.skills || [],
+            capabilities: r.capabilities || [],
             tags: r.tags || [],
             skillGuidelines: r.skillGuidelines || [],
           });
@@ -1237,7 +1237,7 @@ export default function (pi: ExtensionAPI) {
           .map(([name, r]) => {
             const claimed = claimedNames.includes(name);
             const tagStr = r.tags?.length ? " tags:[" + r.tags.join(", ") + "]" : "";
-            return `  ${name.padEnd(12)} [${r.skills.join(", ")}]${tagStr}${claimed ? " ⚠️ TAKEN" : ""}`;
+            return `  ${name.padEnd(12)} [${r.capabilities.join(", ")}]${tagStr}${claimed ? " ⚠️ TAKEN" : ""}`;
           })
           .join("\n");
         ctx.ui.notify(`Available roles:\n${list}\n\nUsage: /pipal-role <name>`, "info");
@@ -1275,7 +1275,7 @@ export default function (pi: ExtensionAPI) {
       config.role = roleName;
       config.identity.name = role.name;
       config.identity.description = role.description;
-      config.identity.skills = role.skills;
+      config.identity.skills = role.capabilities;
       config.identity.tags = role.tags || [];
 
       // Re-register on the network
