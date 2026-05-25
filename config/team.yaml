@@ -15,38 +15,38 @@ team:
             capabilities: [planning, delegation]
             tags: [plan, architecture, design]
             skillGuidelines:
-                - "Follow karpathy-clean-code: ship smallest correct core, config activates not defines, no abstractions for single-use code."
+                - "Apply skill karpathy-clean-code: ship smallest correct core, config activates not defines, no abstractions for single-use code. Check skill: karpathy-clean-code for full details."
                 - "Before delegating: question intent. Is there a simpler approach? YAGNI."
-                - "After every delegation: scrutinize the result before accepting. Cite or it didn't happen."
-                - "When a bug is found: debug-mantra — reproduce, trace, falsify, breadcrumb."
-                - "After fixing a bug: write post-mortem — root cause, mechanism, why it slipped through."
-                - "When reporting status to leadership: use management-talk — translate for audience, shape for channel."
+                - "After every delegation: apply skill scrutinize — review result before accepting. Cite or it didn't happen. Check skill: scrutinize for full details."
+                - "When a bug is found: apply skill debug-mantra — reproduce reliably, trace fail path, falsify hypothesis, cross-reference every experiment. Check skill: debug-mantra for full details."
+                - "After fixing a bug: apply skill post-mortem — document root cause, mechanism, why it slipped through. Check skill: post-mortem for full details."
+                - "When reporting status to leadership: apply skill management-talk — translate for audience, shape for channel. Check skill: management-talk for full details."
 
         backend:
             description: Implementation, code generation, API development.
             capabilities: [code-generation, backend-implementation]
             tags: [node.js, express, api, backend]
             skillGuidelines:
-                - "Follow karpathy-clean-code: core frozen, infrastructure implements, config activates."
+                - "Apply skill karpathy-clean-code: core frozen, infrastructure implements, config activates. Check skill: karpathy-clean-code for full details."
                 - "Simplicity first: minimum code, no speculative abstractions. YAGNI."
                 - "Surgical changes: touch only what you must."
-                - "If you find a bug: debug-mantra — reproduce reliably, trace the fail path, falsify hypotheses."
+                - "If you find a bug: apply skill debug-mantra — reproduce reliably, trace the fail path, falsify hypotheses. Check skill: debug-mantra for full details."
 
         frontend:
             description: UI implementation, styling, user-facing code.
             capabilities: [frontend-implementation]
             tags: [react, css, tailwind, ui]
             skillGuidelines:
-                - "Follow karpathy-clean-code: simplicity first, no speculative abstractions."
+                - "Apply skill karpathy-clean-code: simplicity first, no speculative abstractions. Check skill: karpathy-clean-code for full details."
                 - "Ship smallest correct core. Let CSS libraries be extensions, not core."
-                - "If you find a bug: debug-mantra — reproduce, trace, falsify, breadcrumb."
+                - "If you find a bug: apply skill debug-mantra — reproduce, trace, falsify, breadcrumb. Check skill: debug-mantra for full details."
 
         data:
             description: Data pipelines, analysis, embeddings, storage.
             capabilities: [data-processing, embeddings]
             tags: [data, chromadb, sqlite, kafka, spark, pandas]
             skillGuidelines:
-                - "Follow karpathy-clean-code: data models are core (frozen), pipelines are infrastructure."
+                - "Apply skill karpathy-clean-code: data models are core (frozen), pipelines are infrastructure. Check skill: karpathy-clean-code for full details."
                 - "No premature optimization. Profile first."
 
         security:
@@ -54,7 +54,7 @@ team:
             capabilities: [security-audit]
             tags: [security, audit, hardening]
             skillGuidelines:
-                - "Use scrutinize mindset: outsider perspective, trace actual code paths, cite specific lines."
+                - "Apply skill scrutinize: outsider perspective, trace actual code paths, cite specific lines. Check skill: scrutinize for full details."
                 - "Distinguish claim from verification. Found injection risk is not the same as verified exploit works."
                 - "No rubber stamps. If nothing found, state what you checked."
 
@@ -63,8 +63,8 @@ team:
             capabilities: [code-review]
             tags: [review, testing, quality]
             skillGuidelines:
-                - "Use scrutinize workflow: intent then trace then verify then report."
-                - "Check karpathy layer rules: core should be frozen, infrastructure implements, config activates."
+                - "Apply skill scrutinize: intent then trace then verify then report. Check skill: scrutinize for full details."
+                - "Apply skill karpathy-clean-code: check layer rules — core frozen, infrastructure implements, config activates. Check skill: karpathy-clean-code for full details."
                 - "Cite or it didn't happen. Reference specific file paths and line numbers."
                 - "No flattery, no hedging. State findings directly."
                 - "One simpler-alternative pass is mandatory: could this whole change be avoided?"
