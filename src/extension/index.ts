@@ -63,6 +63,7 @@ interface ExtensionConfig {
   responseFormat?: "raw" | "structured";  // Default: raw
   staleAgentMs?: number;  // Default: 60000 (60s)
   taskTimeoutMs?: number;  // Default: 300000 (5min)
+  _configFileFound?: boolean;  // Internal: whether config file was found on disk
   // MemPalace — swappable memory/KB backend
   // Config activates, not defines. Core doesn't know about MemPalace specifics.
   mempalace?: {
@@ -145,9 +146,11 @@ function loadConfig(): ExtensionConfig {
     }
   }
   if (!configFileFound) {
-    console.warn(`[pipal-a2a] ⚠️  No config/pipal-a2a.yaml found. Using defaults (random name, no skills).`);
-    console.warn(`[pipal-a2a]    Create config/pipal-a2a.yaml for best experience. See README for setup.`);
+    // Don't warn here — main function will silently disable if no env vars either
   }
+
+  // ... rest of loadConfig continues
+
 
   // PIPAL_ROLE env var overrides config file role
   if (process.env.PIPAL_ROLE) {
@@ -203,6 +206,7 @@ function loadConfig(): ExtensionConfig {
     config.sharedState = `http://localhost:${port}`;
   }
 
+  config._configFileFound = configFileFound;
   return config;
 }
 
@@ -586,6 +590,12 @@ function loadTeamRoles(): Map<string, TeamRole> {
 
 export default function (pi: ExtensionAPI) {
   const config = loadConfig();
+
+  // Graceful disable: no config file AND no env var = user doesn't want pipal-a2a
+  // This prevents the extension from crashing when running pi in non-pipal projects
+  if (!config._configFileFound && !process.env.PIPAL_NAME) {
+    return;  // Silently skip — pipal-a2a not activated for this session
+  }
   let client: SharedStateClient | null = null;
   let server: SharedStateServer | null = null;
   let unsubscribe: (() => void) | null = null;
