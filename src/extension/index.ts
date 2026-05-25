@@ -546,6 +546,7 @@ interface TeamRole {
   description: string;
   skills: string[];
   tags?: string[];
+  skillGuidelines?: string[];  // Karpathy: config activates. Per-role skill instructions.
 }
 
 function loadTeamRoles(): Map<string, TeamRole> {
@@ -568,6 +569,7 @@ function loadTeamRoles(): Map<string, TeamRole> {
             description: r.description || `Role: ${key}`,
             skills: r.skills || [],
             tags: r.tags || [],
+            skillGuidelines: r.skillGuidelines || [],
           });
         }
       }
@@ -856,6 +858,12 @@ export default function (pi: ExtensionAPI) {
     // Prepare isolated workspace
     const workDir = await isolation.prepare(card!.name);
 
+    // Load skill guidelines BEFORE chdir — worktree won't have uncommitted changes
+    const agentRole = loadTeamRoles().get(card!.name);
+    const skillGuidelines = agentRole?.skillGuidelines?.length
+      ? "\n\nSkill guidelines for this role:\n" + agentRole.skillGuidelines.map(g => `- ${g}`).join("\n")
+      : "";
+
     // Restore cwd after worktree operations (sandbox pattern)
     const origCwd = process.cwd();
     if (workDir !== origCwd) {
@@ -865,7 +873,8 @@ export default function (pi: ExtensionAPI) {
     const taskMessage =
       `[Delegated task from ${from}]:\n\n${description}\n\n` +
       `Please complete this task using your tools. Your response will be sent back to ${from}.` +
-      (workDir !== origCwd ? `\n\nWorking directory: ${workDir}` : "");
+      (workDir !== origCwd ? `\n\nWorking directory: ${workDir}` : "") +
+      skillGuidelines;
 
     try {
       pi.sendUserMessage(taskMessage);
