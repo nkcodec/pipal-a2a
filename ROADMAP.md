@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.4.1 shipped** — Worktree isolation. Structured responses. 195 tests. Release-please CI.
+> **v0.4.1 shipped** — Worktree isolation. Structured responses. Production hardening. 206 tests. Release-please CI.
 
 ---
 
@@ -99,7 +99,7 @@ v0.4.1  ← Structured response transformer + release-please CI ✅
 - Config: `mempalace.enabled`, `wing`, `sharedRoom`
 - OFF by default (config activates, not defines)
 
-**195 tests. 18 files. Real 3-agent E2E with crash recovery verified.**
+**206 tests. 19 files. Real 3-agent E2E with crash recovery verified.**
 
 ---
 
@@ -183,11 +183,22 @@ New isolation tests:
 
 ---
 
-## Future Ideas (post v0.4.1)
+## Shipped in v0.4.1+ (was Future Ideas)
+
+| Feature | PR | Status |
+|---------|-----|--------|
+| Agent heartbeat + stale cleanup | #10 | ✅ Shipped |
+| Graceful shutdown (SIGTERM/SIGINT) | #10 | ✅ Shipped |
+| Server-side task timeout | #11 | ✅ Shipped |
+| Health endpoint deep check | #12 | ✅ Shipped |
+| Offline agent detection | #13 | ✅ Shipped |
+| CLI rich output (agents/health) | #14 | ✅ Shipped |
+| Worktree cwd sandbox fix | #16 | ✅ Shipped |
+
+## Future Ideas (YAGNI until they hurt)
 
 | Idea | When to build |
 |------|--------------|
-| Agent heartbeat cleanup | When stale agents become a real problem |
 | Auto-role assignment | When 5+ terminal teams become common |
 | gRPC binding | When 100+ agents needed |
 | pi-file-guard | When prompts can't prevent wrong writes |
@@ -255,4 +266,4 @@ Correct for 3-5 agents on localhost. True P2P mesh is YAGNI.
 7. ✅ **Secure** — localhost binding, SSRF protection, YAML RCE prevented
 8. ✅ **Zero config** — Works with defaults, configurable when needed
 9. ✅ **Crash-safe** — SQLite WAL mode, auto-reconnect, upsert re-registration
-10. ✅ **195 tests** — Core, infrastructure, extension, routing, isolation, transformer, E2E, crash recovery
+10. ✅ **206 tests** — Core, infrastructure, extension, routing, isolation, transformer, E2E, crash recovery
