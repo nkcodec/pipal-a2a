@@ -2,7 +2,7 @@
 
 **Google A2A v1.0 compliant — each pi terminal IS an agent.**
 
-> **v0.4.1 shipped** — Worktree isolation. Structured responses. Production hardening. 206 tests. Release-please CI.
+> **v0.4.1 shipped** — Worktree isolation. Structured responses. Skill guidelines. Production hardening. 206 tests. 21 PRs merged. Release-please CI.
 
 ---
 
@@ -103,6 +103,56 @@ v0.4.1  ← Structured response transformer + release-please CI ✅
 
 ---
 
+## Skill Guidelines (PR #19–#21) ✅ SHIPPED
+
+Behavioral instructions injected into task messages when a role receives delegated work.
+
+### How it works
+
+```
+team.yaml skillGuidelines
+    ↓
+extension loads role's guidelines (before chdir to worktree)
+    ↓
+Guidelines appended to task message as bullet list
+    ↓
+Agent's pi instance already has all SKILL.md files loaded
+    ↓
+Guidelines trigger the right skill at the right time
+```
+
+### Key fix (debug-mantra)
+
+`loadTeamRoles()` was called AFTER `chdir(worktree)`. The worktree checks out from HEAD which lacked uncommitted team.yaml changes. **Fix: load before chdir.**
+
+### Terminology (disambiguated)
+
+| Term | Meaning | Used by |
+|------|---------|----------|
+| `capabilities` | Routing labels — "what I can do" | SmartRouter, SkillMatcher |
+| `tags` | Fuzzy keywords — "match my task text" | SmartRouter keyword scoring |
+| `skillGuidelines` | Behavioral triggers — "how I think" | Injected into task messages |
+| SKILL.md | Full skill definitions | Loaded by pi at startup (separate system) |
+
+### Pattern: explicit skill pointers
+
+Each guideline uses two signals so the agent knows where to find full details:
+```
+"Apply skill <name>: <essence>. Check skill: <name> for full details."
+```
+
+### Five-skill pipeline
+
+| Skill | Trigger | Used by |
+|-------|---------|----------|
+| karpathy-clean-code | Build | All agents |
+| debug-mantra | Debug | backend, frontend, planner |
+| scrutinize | Review | reviewer, security, planner |
+| post-mortem | Document | planner |
+| management-talk | Communicate | planner |
+
+---
+
 ## v0.4.0 — Agent Isolation (git worktrees) ✅ SHIPPED
 
 Prevents file conflicts when multiple agents edit the same project.
@@ -193,7 +243,13 @@ New isolation tests:
 | Health endpoint deep check | #12 | ✅ Shipped |
 | Offline agent detection | #13 | ✅ Shipped |
 | CLI rich output (agents/health) | #14 | ✅ Shipped |
+| npm scripts (agents/health/serve) | #15 | ✅ Shipped |
 | Worktree cwd sandbox fix | #16 | ✅ Shipped |
+| ROADMAP update | #17 | ✅ Shipped |
+| Graceful disable | #18 | ✅ Shipped |
+| Skill guidelines via team.yaml | #19 | ✅ Shipped |
+| Rename skills → capabilities | #20 | ✅ Shipped |
+| Explicit skill pointers | #21 | ✅ Shipped |
 
 ## Future Ideas (YAGNI until they hurt)
 
@@ -267,3 +323,5 @@ Correct for 3-5 agents on localhost. True P2P mesh is YAGNI.
 8. ✅ **Zero config** — Works with defaults, configurable when needed
 9. ✅ **Crash-safe** — SQLite WAL mode, auto-reconnect, upsert re-registration
 10. ✅ **206 tests** — Core, infrastructure, extension, routing, isolation, transformer, E2E, crash recovery
+11. ✅ **Skill guidelines** — Behavioral instructions flow to delegated agents via team.yaml
+12. ✅ **21 PRs merged** — Clean git history, squash-merged

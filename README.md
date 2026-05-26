@@ -113,22 +113,30 @@ mempalace:
 team:
   roles:
     planner:
-      name: planner
-      skills: [planning, delegation]
+      capabilities: [planning, delegation]
       tags: [plan, architecture, design]
+      skillGuidelines:
+        - "Apply skill karpathy-clean-code: ship smallest correct core..."
+        - "When a bug is found: apply skill debug-mantra..."
     backend:
-      name: backend
-      skills: [code-generation, backend-implementation]
+      capabilities: [code-generation, backend-implementation]
       tags: [node.js, express, api, backend]
+      skillGuidelines:
+        - "Apply skill karpathy-clean-code: core frozen..."
     frontend:
-      name: frontend
-      skills: [frontend-implementation]
+      capabilities: [frontend-implementation]
       tags: [react, tailwind, typescript]
     reviewer:
-      name: reviewer
-      skills: [code-review, security-review]
+      capabilities: [code-review, security-review]
       tags: [security, review]
 ```
+
+**Field reference:**
+| Field | Purpose | Example |
+|-------|---------|----------|
+| `capabilities` | Routing labels — what this role can do | `[code-generation]` |
+| `tags` | Fuzzy keyword matching for SmartRouter | `[node.js, express]` |
+| `skillGuidelines` | Behavioral instructions injected into task messages | `["Apply skill karpathy-clean-code: ..."]` |
 
 ### `.env`
 
@@ -138,8 +146,8 @@ PIPAL_API_KEY=your-secret-key
 
 ## Agent Roles
 
-| Role | Skills | When to delegate |
-|------|--------|-----------------|
+| Role | Capabilities | When to delegate |
+|------|-------------|-----------------|
 | **planner** | planning, delegation | You (orchestrator) |
 | **backend** | code-generation, backend-implementation | APIs, servers, databases |
 | **frontend** | frontend-implementation | React, CSS, UI |
@@ -157,10 +165,41 @@ PIPAL_API_KEY=your-secret-key
 | `pipal_a2a_status` | Network health check |
 | `pipal_a2a_ask` | Ask follow-up question on delegated task |
 
+## Skill Guidelines
+
+Every role can define `skillGuidelines` — behavioral instructions that get injected into the task message when that role receives delegated work.
+
+**How it works:**
+1. Role defines `skillGuidelines` in `config/team.yaml`
+2. When a task arrives, the extension loads the role's guidelines (before `chdir` to worktree)
+3. Guidelines are appended to the task message as a bullet list
+4. The agent's pi instance already has all SKILL.md files loaded in context — guidelines trigger the right skill
+
+**Pattern:** Each guideline uses two signals:
+- `Apply skill <name>: <essence>` — activates the skill
+- `Check skill: <name> for full details` — explicit pointer to the loaded SKILL.md
+
+**Five-skill pipeline:**
+| Skill | Trigger | Used by |
+|-------|---------|----------|
+| karpathy-clean-code | Build | All agents |
+| debug-mantra | Debug | backend, frontend, planner |
+| scrutinize | Review | reviewer, security, planner |
+| post-mortem | Document | planner |
+| management-talk | Communicate | planner |
+
+**Terminology:**
+| Term | Meaning |
+|------|---------|
+| `capabilities` | Routing labels — "what I can do" (used by SmartRouter) |
+| `tags` | Fuzzy keywords — "match my task text" (used by SmartRouter) |
+| `skillGuidelines` | Behavioral triggers — "how I think" (injected into task message) |
+| SKILL.md | Full skill definitions — loaded by pi at startup (separate system) |
+
 ## Tests
 
 ```bash
-npm test        # 195 tests, 18 files
+npm test        # 206 tests, 19 files
 ```
 
 ## Architecture
