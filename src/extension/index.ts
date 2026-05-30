@@ -110,6 +110,7 @@ function loadConfig(): ExtensionConfig {
   };
 
   const paths = [
+    resolve(process.cwd(), ".pipal-a2a/config.yaml"),
     resolve(process.cwd(), "config/pipal-a2a.yaml"),
     resolve(process.cwd(), ".pipal-a2a.yaml"),
     resolve(process.env.HOME || "~", ".pi/config/pipal-a2a.yaml"),
@@ -345,6 +346,7 @@ interface Workflow {
 function loadWorkflows(): Map<string, Workflow> {
   const workflows = new Map<string, Workflow>();
   const paths = [
+    resolve(process.cwd(), ".pipal-a2a/team.yaml"),
     resolve(process.cwd(), "config/team.yaml"),
     resolve(process.cwd(), "team.yaml"),
     resolve(process.env.HOME || "~", ".pi/config/team.yaml"),
@@ -552,6 +554,7 @@ interface TeamRole {
 function loadTeamRoles(): Map<string, TeamRole> {
   const roles = new Map<string, TeamRole>();
   const paths = [
+    resolve(process.cwd(), ".pipal-a2a/team.yaml"),
     resolve(process.cwd(), "config/team.yaml"),
     resolve(process.cwd(), "team.yaml"),
     resolve(process.env.HOME || "~", ".pi/config/team.yaml"),
