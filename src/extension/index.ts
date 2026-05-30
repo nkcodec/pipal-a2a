@@ -471,7 +471,7 @@ async function executeWorkflowIfMatch(
       task: effectiveTask,
     });
 
-    const result = await waitForTaskCompletion(client, taskId, 120_000, signal, onUpdate, card.name, target.name);
+    const result = await waitForTaskCompletion(client, taskId, 600_000, signal, onUpdate, card.name, target.name);
     completedRoles.add(step.role);
 
     const status = result?.status?.state === "TASK_STATE_COMPLETED" ? "✅" : "❌";
@@ -921,6 +921,7 @@ export default function (pi: ExtensionAPI) {
       "IMPORTANT: You are an ORCHESTRATOR — NEVER write code or create project files yourself. ONLY delegate via pipal_a2a_delegate.",
       "Before delegating: call pipal_a2a_agents() to find correct agent names. Then use to=<name>.",
       "Before delegating: call pipal_a2a_my_card() to check your own skills. Handle it yourself ONLY if you have matching skills.",
+      "For long-running tasks (builds, test suites, compilation): use timeoutMs parameter. Default is 600000 (10min). Increase for Maven/SBT builds.",
       "Delegate ONLY when: (1) task requires skills you don't have, (2) task is too complex for one agent.",
       "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
       "If delegation returns incomplete results: delegate AGAIN with a clearer task — do NOT build it yourself.",
@@ -935,6 +936,7 @@ export default function (pi: ExtensionAPI) {
       task: Type.String({ description: "The task description to delegate" }),
       skill: Type.Optional(Type.String({ description: "Required skill ID for routing" })),
       to: Type.Optional(Type.String({ description: "Specific agent ID (bypasses routing)" })),
+      timeoutMs: Type.Optional(Type.Number({ description: "Timeout in milliseconds (default: 600000 = 10min). Increase for long builds." })),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!client || !card) {
@@ -1052,7 +1054,7 @@ export default function (pi: ExtensionAPI) {
 
         // Use shared waitForTaskCompletion (handles streaming + multi-turn + abort)
         const result = await waitForTaskCompletion(
-          client, taskId, 120_000, new AbortController().signal, onUpdate, card.name, targetCard.name
+          client, taskId, params.timeoutMs ?? 600_000, new AbortController().signal, onUpdate, card.name, targetCard.name
         );
 
         if (result.status.state === "TASK_STATE_COMPLETED") {

@@ -88,7 +88,7 @@ export class SharedStateServer {
 
   constructor(private readonly options: { dbPath?: string; apiKeys?: string[]; staleAgentMs?: number; taskTimeoutMs?: number } = {}) {
     this.store = new StateStore(options.dbPath || ".pipal-a2a/state.db");
-    this.staleAgentMs = options.staleAgentMs ?? 60_000;
+    this.staleAgentMs = options.staleAgentMs ?? 120_000;
     this.taskTimeoutMs = options.taskTimeoutMs ?? 300_000;
     if (options.apiKeys) {
       for (const key of options.apiKeys) this.validApiKeys.add(key);
@@ -651,8 +651,12 @@ export class SharedStateServer {
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
 
-      const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 15000);
-      this.sseClients.set(clientId, { res, heartbeat, agentId, lastSeen: Date.now() });
+      const clientData: { res: Response; heartbeat: ReturnType<typeof setInterval>; agentId?: string; lastSeen: number } = { res, heartbeat: null as any, agentId, lastSeen: Date.now() };
+      clientData.heartbeat = setInterval(() => {
+        res.write(": heartbeat\n\n");
+        clientData.lastSeen = Date.now();  // Heartbeat keeps agent alive
+      }, 15000);
+      this.sseClients.set(clientId, clientData);
 
       req.on("close", () => {
         clearInterval(heartbeat);
