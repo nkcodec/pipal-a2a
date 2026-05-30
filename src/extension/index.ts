@@ -756,12 +756,22 @@ export default function (pi: ExtensionAPI) {
   // Graceful shutdown (SIGTERM/SIGINT)
   // Production: ensures SQLite closes, agents unregister, worktrees finalize.
   // ───────────────────────────────────────────────────────────────
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;  // Prevent re-entry
+    shuttingDown = true;
     console.log(`\n[pipal-a2a] ${signal} received — shutting down gracefully`);
+    // Force exit after 5s regardless
+    setTimeout(() => {
+      console.log("[pipal-a2a] Force exit (cleanup timed out)");
+      process.exit(0);
+    }, 5000);
     if (unsubscribe) { unsubscribe(); unsubscribe = null; }
     if (client && card) {
-      const result = await isolation.finalize(card.name);
-      if (result.success) await isolation.cleanup(card.name);
+      try {
+        const result = await isolation.finalize(card.name);
+        if (result.success) await isolation.cleanup(card.name);
+      } catch {}
       try { await client.unregister(card.name); } catch {}
     }
     if (server) { await server.stop(); server = null; }
