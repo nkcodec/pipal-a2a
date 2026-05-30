@@ -659,7 +659,7 @@ export class SharedStateServer {
       this.sseClients.set(clientId, clientData);
 
       req.on("close", () => {
-        clearInterval(heartbeat);
+        clearInterval(clientData.heartbeat);
         this.sseClients.delete(clientId);
       });
 
