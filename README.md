@@ -43,7 +43,7 @@ pipal_a2a_delegate({ task: "Create /tmp/hello.txt with content 'hello from A2A'"
 - **Crash-safe** — SQLite (node:sqlite) persists agents, tasks, configs across restarts
 - **Auto-reconnect** — SSE clients reconnect with exponential backoff
 - **Smart routing** — delegate by role, skill, or agent name
-- **Workflow mode** — multi-step workflows defined in `config/team.yaml`
+- **Workflow mode** — multi-step workflows defined in `.pipal-a2a/team.yaml`
 - **Streaming** — see results as they arrive via SSE
 - **Task Clarity Guard** — rejects vague tasks ("build something cool")
 - **Multi-turn** — agents can ask clarifying questions (INPUT_REQUIRED)
@@ -83,7 +83,10 @@ PIPAL_ROLE=planner pi   # server restarts, opens state.db, everything's there
 
 ## Configuration
 
-### `config/pipal-a2a.yaml`
+### `.pipal-a2a/config.yaml`
+
+> **Convention**: pipal-a2a uses `.pipal-a2a/` (like `.git`, `.zed`, `.github`).
+> Copy from `config/*.yaml.example` to get started.
 
 ```yaml
 # Shared state rendezvous URL
@@ -107,7 +110,7 @@ mempalace:
   sharedRoom: "shared"
 ```
 
-### `config/team.yaml`
+### `.pipal-a2a/team.yaml`
 
 ```yaml
 team:
@@ -170,7 +173,7 @@ PIPAL_API_KEY=your-secret-key
 Every role can define `skillGuidelines` — behavioral instructions that get injected into the task message when that role receives delegated work.
 
 **How it works:**
-1. Role defines `skillGuidelines` in `config/team.yaml`
+1. Role defines `skillGuidelines` in `.pipal-a2a/team.yaml`
 2. When a task arrives, the extension loads the role's guidelines (before `chdir` to worktree)
 3. Guidelines are appended to the task message as a bullet list
 4. The agent's pi instance already has all SKILL.md files loaded in context — guidelines trigger the right skill
