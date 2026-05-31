@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.4.2](https://github.com/nkcodec/pipal-a2a/compare/pipal-a2a-v0.4.1...pipal-a2a-v0.4.2) (2026-05-31)
+
+
+### Features
+
+* add structured response transformer for agent responses ([#7](https://github.com/nkcodec/pipal-a2a/issues/7)) ([4754490](https://github.com/nkcodec/pipal-a2a/commit/475449033bf676a6c3afce0df33d24e2822e50b4))
+* CLI rich output — agent status + deep health ([#14](https://github.com/nkcodec/pipal-a2a/issues/14)) ([7e372a2](https://github.com/nkcodec/pipal-a2a/commit/7e372a218887687a8fbccb7ecd7ab1ec7c691865))
+* explicit skill pointers in skillGuidelines ([#21](https://github.com/nkcodec/pipal-a2a/issues/21)) ([ce08c9d](https://github.com/nkcodec/pipal-a2a/commit/ce08c9dc10643a4b6630106d2bdce3de35b68e05))
+* health endpoint deep check — db + sse + task breakdown ([#12](https://github.com/nkcodec/pipal-a2a/issues/12)) ([d149d4e](https://github.com/nkcodec/pipal-a2a/commit/d149d4ed7d072970c9cd83257694e294bb6760f2))
+* offline agent detection — fail fast on delegate ([#13](https://github.com/nkcodec/pipal-a2a/issues/13)) ([1f4c84f](https://github.com/nkcodec/pipal-a2a/commit/1f4c84f04dd85887181ded1206f8086c69c6821d))
+* production hardening — stale agent cleanup + graceful shutdown ([#10](https://github.com/nkcodec/pipal-a2a/issues/10)) ([8c306b0](https://github.com/nkcodec/pipal-a2a/commit/8c306b0ebde1da3adcadf73909ef88858a869f25))
+* server-side task timeout — zombie task cleanup ([#11](https://github.com/nkcodec/pipal-a2a/issues/11)) ([93b7955](https://github.com/nkcodec/pipal-a2a/commit/93b79555192c99a6ec12bfd07e5c22f0d41f1122))
+* skill guidelines flow to delegated agents via team.yaml ([#19](https://github.com/nkcodec/pipal-a2a/issues/19)) ([a863249](https://github.com/nkcodec/pipal-a2a/commit/a863249a539a217a2fff66c4b8f474139b17b170))
+* support .pipal-a2a/ config directory ([#23](https://github.com/nkcodec/pipal-a2a/issues/23)) ([db80321](https://github.com/nkcodec/pipal-a2a/commit/db803219352b02c6968823ff2dea5571bd56d515))
+
+
+### Bug Fixes
+
+* crash on SSE disconnect — heartbeat ref not found ([#25](https://github.com/nkcodec/pipal-a2a/issues/25)) ([7a62f35](https://github.com/nkcodec/pipal-a2a/commit/7a62f3512e3235a0cdd6608e9cac63c17173c759))
+* delegation timeout 120s→600s, heartbeat keeps agents alive ([#24](https://github.com/nkcodec/pipal-a2a/issues/24)) ([c9e4e41](https://github.com/nkcodec/pipal-a2a/commit/c9e4e41f4ca6790f7453337678a3b28b9d83aeeb))
+* graceful shutdown hangs on repeated ^C ([#26](https://github.com/nkcodec/pipal-a2a/issues/26)) ([2bf1084](https://github.com/nkcodec/pipal-a2a/commit/2bf108423b82188eaee533cfdcf79c5c69339751))
+* gracefully disable when no config and no PIPAL_NAME env var ([#18](https://github.com/nkcodec/pipal-a2a/issues/18)) ([153922c](https://github.com/nkcodec/pipal-a2a/commit/153922c3914d49caf24542d3d2c58acc7c32a12a))
+* pipal-status shows real online status, not just registered agents ([#29](https://github.com/nkcodec/pipal-a2a/issues/29)) ([c0a0cde](https://github.com/nkcodec/pipal-a2a/commit/c0a0cde0023d4b2568bd90450e975a464d6dcbb2))
+* process.chdir into worktree so agents write to isolated directory ([#16](https://github.com/nkcodec/pipal-a2a/issues/16)) ([8622947](https://github.com/nkcodec/pipal-a2a/commit/862294755a420930d498f40fc7d52e4bbe2a4d09))
+* server zombie timeout kills actively-working tasks ([#28](https://github.com/nkcodec/pipal-a2a/issues/28)) ([b412c47](https://github.com/nkcodec/pipal-a2a/commit/b412c476509bc9396e32ed3736002b3df21b5909))
+* task adoption on reconnect — recover orphaned tasks after session restart ([#27](https://github.com/nkcodec/pipal-a2a/issues/27)) ([2d7830d](https://github.com/nkcodec/pipal-a2a/commit/2d7830dcde3a0606e1e00d7b84bf6eb300a80876))
+
+
+### Documentation
+
+* update README + ROADMAP for skill guidelines, capabilities, PR [#19](https://github.com/nkcodec/pipal-a2a/issues/19)-21 ([#22](https://github.com/nkcodec/pipal-a2a/issues/22)) ([cde1c07](https://github.com/nkcodec/pipal-a2a/commit/cde1c07718ea7ee05926c70aa91b943abf61cc5f))
+* update README + ROADMAP for v0.4.1 ([#9](https://github.com/nkcodec/pipal-a2a/issues/9)) ([0ad956d](https://github.com/nkcodec/pipal-a2a/commit/0ad956d988227feb8beebf5b2bcc0f437fd44b80))
+* update ROADMAP — 206 tests, shipped features, clean future ideas ([#17](https://github.com/nkcodec/pipal-a2a/issues/17)) ([56fef44](https://github.com/nkcodec/pipal-a2a/commit/56fef44a7cc76192697a733cbdb0c849b48bf413))
+
 ## [0.4.1](https://github.com/nkcodec/pipal-a2a/compare/pipal-a2a-v0.4.0...pipal-a2a-v0.4.1) (2026-05-23)
 
 
