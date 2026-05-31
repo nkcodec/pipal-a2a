@@ -89,7 +89,7 @@ export class SharedStateServer {
   constructor(private readonly options: { dbPath?: string; apiKeys?: string[]; staleAgentMs?: number; taskTimeoutMs?: number } = {}) {
     this.store = new StateStore(options.dbPath || ".pipal-a2a/state.db");
     this.staleAgentMs = options.staleAgentMs ?? 120_000;
-    this.taskTimeoutMs = options.taskTimeoutMs ?? 300_000;
+    this.taskTimeoutMs = options.taskTimeoutMs ?? 1_800_000;  // 30 min default — only for zombie tasks (agent offline)
     if (options.apiKeys) {
       for (const key of options.apiKeys) this.validApiKeys.add(key);
     }
@@ -216,12 +216,26 @@ export class SharedStateServer {
     }
 
     // Timeout zombie tasks — stuck in non-terminal state for > taskTimeoutMs
+    // Only timeout if the assigned agent is OFFLINE (truly zombie).
+    // If the agent is still connected, the task is actively being worked on.
     const activeStates = new Set(["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING", "TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED"]);
+    const onlineAgentIds = new Set(
+      [...this.sseClients.values()]
+        .filter((c) => c.agentId)
+        .map((c) => c.agentId!)
+    );
     let timedOut = 0;
     for (const task of this.store.listTasks()) {
       if (activeStates.has(task.status.state)) {
         const age = now - new Date(task.status.timestamp).getTime();
         if (age > this.taskTimeoutMs) {
+          // Only timeout if assigned agent is offline (true zombie)
+          const assignedAgent = task.toAgent;
+          const agentOnline = assignedAgent && onlineAgentIds.has(assignedAgent);
+          if (agentOnline) {
+            // Agent is still connected — task is active, not zombie
+            continue;
+          }
           const updated: StoredTask = {
             ...task,
             status: { state: "TASK_STATE_FAILED", timestamp: new Date().toISOString() },
@@ -229,7 +243,7 @@ export class SharedStateServer {
           this.store.updateTaskState(task.id, "TASK_STATE_FAILED", JSON.stringify(updated));
           this.broadcast("task:failed", { taskId: task.id, from: task.fromAgent, to: task.toAgent, reason: "timeout" });
           timedOut++;
-          console.warn(`[Cleanup] ⏰ Timed out task: ${task.id} (was ${task.status.state}, ${Math.round(age / 1000)}s old)`);
+          console.warn(`[Cleanup] ⏰ Timed out task: ${task.id} (was ${task.status.state}, ${Math.round(age / 1000)}s old, agent ${assignedAgent || "unassigned"} offline)`);
         }
       }
     }
