@@ -648,6 +648,70 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ───────────────────────────────────────────────────────────────
+  // Task adoption: re-attach to orphaned tasks after session restart
+  // When pi restarts (compaction, crash, API timeout), in-flight
+  // waitForTaskCompletion promises are destroyed. This function
+  // re-subscribes and injects recovered results into the new session.
+  // ───────────────────────────────────────────────────────────────
+  async function adoptOrphanedTask(
+    taskClient: SharedStateClient,
+    taskId: string,
+    agentName: string,
+    taskPi: ExtensionAPI,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        unsub();
+        reject(new Error(`Adoption timeout for ${taskId}`));
+      }, 600_000);  // 10 min max wait
+
+      const unsub = taskClient.subscribeToTask(taskId, (event, data) => {
+        if (event === "task_completed") {
+          clearTimeout(timer);
+          unsub();
+          // Inject result into new session so the LLM knows what happened
+          const result = (data as any)?.result || "Task completed (result recovered)";
+          const resultText = typeof result === 'string' ? result : JSON.stringify(result);
+          console.log(`[pipal-a2a] ✅ Adopted task ${taskId.slice(0, 8)} completed — ${resultText.length} chars`);
+          taskPi.sendUserMessage(
+            `[pipal-a2a] Recovered result for orphaned task ${taskId.slice(0, 8)}:\n\n${resultText.slice(0, 4000)}`
+          );
+          resolve();
+        }
+        if (event === "task_failed") {
+          clearTimeout(timer);
+          unsub();
+          const error = (data as any)?.error || "Task failed (no error details)";
+          console.warn(`[pipal-a2a] ❌ Adopted task ${taskId.slice(0, 8)} failed: ${error}`);
+          taskPi.sendUserMessage(
+            `[pipal-a2a] Recovered task ${taskId.slice(0, 8)} FAILED: ${error}`
+          );
+          resolve();
+        }
+      });
+
+      // Also check immediately — task may have completed while we were offline
+      taskClient.getTask(taskId).then((task: any) => {
+        const state = task?.status?.state;
+        if (state === "TASK_STATE_COMPLETED" || state === "TASK_STATE_FAILED") {
+          clearTimeout(timer);
+          unsub();
+          const result = task?.artifacts?.[0]?.parts?.[0]?.text
+            || task?.status?.message?.parts?.[0]?.text
+            || (state === "TASK_STATE_COMPLETED" ? "Completed" : "Failed");
+          console.log(`[pipal-a2a] ✅ Adopted task ${taskId.slice(0, 8)} already ${state} — injecting result`);
+          taskPi.sendUserMessage(
+            `[pipal-a2a] Recovered result for task ${taskId.slice(0, 8)} (already ${state}):\n\n${String(result).slice(0, 4000)}`
+          );
+          resolve();
+        }
+      }).catch(() => {
+        // getTask failed — subscription will handle it
+      });
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────
   // Lifecycle: session_start
   // ───────────────────────────────────────────────────────────────
   pi.on("session_start", async () => {
@@ -721,6 +785,36 @@ export default function (pi: ExtensionAPI) {
     console.log(`[pipal-a2a] ✅ Online as "${card.name}" [${skillList}] tags:[${tagList}]`);
     console.log(`[pipal-a2a] pipal_a2a tools: agents() | my_card() | delegate() | status()`);
     console.log(`[pipal-a2a] Check agents() + my_card() BEFORE delegating.`);
+
+    // ───────────────────────────────────────────────────────────────
+    // Task adoption: recover orphaned tasks from previous session
+    // When pi restarts (compaction, crash, API timeout), in-flight
+    // waitForTaskCompletion promises are destroyed. Tasks become
+    // orphaned — no one listening for results. This reconciles them.
+    // ───────────────────────────────────────────────────────────────
+    try {
+      const myName = card!.name;
+      const allTasks = await client!.listTasks();
+      const activeStates = ["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING", "TASK_STATE_INPUT_REQUIRED"];
+      // Tasks I sent that are still in-flight
+      const myOrphans = allTasks.filter(
+        (t: any) => t.fromAgent === myName && activeStates.includes(t.status?.state)
+      );
+      if (myOrphans.length > 0) {
+        console.log(`[pipal-a2a] 🔍 Found ${myOrphans.length} orphaned task(s) — adopting`);
+        for (const task of myOrphans) {
+          const tid = typeof task === 'string' ? task : task.id;
+          const desc = (task as any).taskDescription || (task as any).status?.message?.parts?.[0]?.text || '(unknown)';
+          console.log(`[pipal-a2a] 📎 Adopting task ${tid.slice(0, 8)}: "${String(desc).slice(0, 50)}..."`);
+          // Re-subscribe in background — don't block session_start
+          adoptOrphanedTask(client!, tid, myName, pi).catch((err: any) => {
+            console.warn(`[pipal-a2a] ⚠️  Adoption failed for ${tid.slice(0, 8)}: ${err.message}`);
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[pipal-a2a] ⚠️  Task adoption check failed: ${err.message}`);
+    }
 
     // Pre-flight check: MemPalace enabled but server healthy?
     if (config.mempalace?.enabled) {
@@ -925,13 +1019,14 @@ export default function (pi: ExtensionAPI) {
       "IMPORTANT: This is the ONLY way to delegate work to other pi terminals. " +
       "Use this tool instead of subagents when you want to send work to another terminal. " +
       "The other agent's LLM will process the task in its own terminal (the user can see it working). " +
-      "Waits up to 2 minutes for the result.",
+      "Waits for the result (default 10 min, configurable via timeoutMs).",
     promptSnippet: "Delegate work to other pi terminals via P2P A2A network",
     promptGuidelines: [
       "IMPORTANT: You are an ORCHESTRATOR — NEVER write code or create project files yourself. ONLY delegate via pipal_a2a_delegate.",
       "Before delegating: call pipal_a2a_agents() to find correct agent names. Then use to=<name>.",
       "Before delegating: call pipal_a2a_my_card() to check your own skills. Handle it yourself ONLY if you have matching skills.",
       "For long-running tasks (builds, test suites, compilation): use timeoutMs parameter. Default is 600000 (10min). Increase for Maven/SBT builds.",
+      "CRITICAL: Break complex tasks into subtasks that take <8 minutes each. One 'implement everything' task WILL timeout. Instead: task 1 = 'create X file', task 2 = 'create Y file', task 3 = 'run tests'. Each step stays well under timeout.",
       "Delegate ONLY when: (1) task requires skills you don't have, (2) task is too complex for one agent.",
       "When delegating multiple specialized tasks (e.g., 'node.js backend + react frontend'), call pipal_a2a_delegate separately for each.",
       "If delegation returns incomplete results: delegate AGAIN with a clearer task — do NOT build it yourself.",
