@@ -1223,13 +1223,19 @@ export default function (pi: ExtensionAPI) {
       }
       try {
         const agents = await client.listAgents();
-        const lines = agents.map((a) => {
+        // Check actual SSE connections — registered ≠ online
+        const onlineChecks = await Promise.all(
+          agents.map(async (a) => ({ agent: a, online: await client!.isAgentOnline(a.name) }))
+        );
+        const onlineCount = onlineChecks.filter(c => c.online).length;
+        const lines = onlineChecks.map(({ agent: a, online }) => {
           const skills = a.skills.map((s) => s.id).join(", ");
           const tags = [...new Set(a.skills.flatMap((s) => s.tags || []))].join(", ");
-          return `- ${a.name}: [${skills}] tags:[${tags}]`;
+          const status = online ? "✅" : "⚠️ OFFLINE";
+          return `- ${a.name}: [${skills}] tags:[${tags}] ${status}`;
         });
         return {
-          content: [{ type: "text" as const, text: `Online agents:\n${lines.join("\n")}` }],
+          content: [{ type: "text" as const, text: `${onlineCount}/${agents.length} agent(s) online:\n${lines.join("\n")}` }],
         };
       } catch (e) {
         return { content: [{ type: "text" as const, text: `Failed: ${e}` }] };
@@ -1282,10 +1288,22 @@ export default function (pi: ExtensionAPI) {
       }
       try {
         const agents = await client.listAgents();
+        // Check actual SSE connections — registered ≠ online
+        const onlineChecks = await Promise.all(
+          agents.map(async (a) => ({ name: a.name, online: await client!.isAgentOnline(a.name) }))
+        );
+        const onlineMap = new Map(onlineChecks.map(c => [c.name, c.online]));
+        const onlineCount = onlineChecks.filter(c => c.online).length;
+        const lines = agents.map(a => {
+          const online = onlineMap.get(a.name) ?? false;
+          const skills = a.skills.map(s => s.id).join(", ") || "none";
+          const status = online ? "✅ online" : "⚠️ OFFLINE (registered but no SSE connection)";
+          return `  ${a.name}: [${skills}] — ${status}`;
+        });
         return {
           content: [{
             type: "text" as const,
-            text: `Network: ${agents.length} agent(s) online. Status: healthy`,
+            text: `Network: ${agents.length} agent(s) registered, ${onlineCount} online.\n${lines.join("\n")}`,
           }],
         };
       } catch (e) {
@@ -1307,15 +1325,24 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("No agents online", "warning");
           return;
         }
+        // Check actual SSE connections — registered ≠ online
+        const onlineChecks = await Promise.all(
+          agents.map(async (a) => ({ name: a.name, online: await client!.isAgentOnline(a.name) }))
+        );
+        const onlineMap = new Map(onlineChecks.map(c => [c.name, c.online]));
+        const onlineCount = onlineChecks.filter(c => c.online).length;
+
         const lines = agents
           .map((a) => {
             const isYou = a.name === card?.name;
             const skills = a.skills.map((s) => s.id).join(", ") || "none";
+            const online = onlineMap.get(a.name) ?? false;
+            const status = online ? "✅" : "⚠️ OFFLINE";
             const iface = a.supportedInterfaces[0];
-            return `  ${isYou ? "→ " : "  "}${a.name}: [${skills}]${isYou ? " (you)" : ""} ${iface?.protocolBinding || ""}`;
+            return `  ${isYou ? "→ " : "  "}${a.name}: [${skills}] ${status}${isYou ? " (you)" : ""} ${iface?.protocolBinding || ""}`;
           })
           .join("\n");
-        ctx.ui.notify(`${agents.length} agent(s) online (A2A v1.0):\n${lines}`, "info");
+        ctx.ui.notify(`${agents.length} agent(s) registered, ${onlineCount} online:\n${lines}`, "info");
       } catch (error) {
         ctx.ui.notify(`Failed to get status: ${error}`, "error");
       }
